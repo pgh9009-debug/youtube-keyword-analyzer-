@@ -7,6 +7,8 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+import plotly.io as pio
+pio.templates.default = "plotly_dark"
 from dotenv import load_dotenv
 from streamlit_cookies_controller import CookieController
 from youtube_analyzer import YouTubeAnalyzer
@@ -16,9 +18,187 @@ import storage
 
 load_dotenv()
 
-st.set_page_config(page_title="YouTube 키워드 분석기", page_icon="📊", layout="wide")
+st.set_page_config(page_title="마케팅신", page_icon="📊", layout="wide")
 
 _cookies = CookieController()
+
+st.markdown("""
+<style>
+/* ── 기본 배경 & 텍스트 ── */
+html, body, [data-testid="stApp"],
+[data-testid="stAppViewContainer"] > .main {
+    background-color: #0d0d0d !important;
+    color: #e8e8e8 !important;
+}
+[data-testid="stHeader"] { background: #0d0d0d !important; }
+[data-testid="block-container"] { padding-top: 2rem !important; }
+
+/* ── 사이드바 ── */
+[data-testid="stSidebar"] {
+    background: #111111 !important;
+    border-right: 1px solid #222 !important;
+}
+[data-testid="stSidebar"] * { color: #e8e8e8 !important; }
+[data-testid="stSidebar"] .stRadio label { color: #e8e8e8 !important; }
+[data-testid="stSidebar"] hr { border-color: #2a2a2a !important; }
+
+/* ── 라디오 버튼 ── */
+[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label {
+    padding: 6px 10px !important;
+    border-radius: 6px !important;
+    cursor: pointer !important;
+    transition: background .15s !important;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label:hover {
+    background: #1e1e1e !important;
+}
+
+/* ── 입력 필드 ── */
+input, textarea,
+[data-testid="stTextInput"] input,
+[data-testid="stTextArea"] textarea {
+    background-color: #1a1a1a !important;
+    color: #f0f0f0 !important;
+    border: 1px solid #2e2e2e !important;
+    border-radius: 8px !important;
+}
+input:focus, textarea:focus {
+    border-color: #ffffff !important;
+    box-shadow: 0 0 0 2px rgba(255,255,255,.1) !important;
+}
+input::placeholder, textarea::placeholder { color: #555 !important; }
+
+/* ── 슬라이더 ── */
+[data-testid="stSlider"] [data-baseweb="slider"] div[role="slider"] {
+    background: #fff !important;
+}
+[data-testid="stSlider"] div[data-testid="stSliderThumbValue"] { color: #ccc !important; }
+
+/* ── 버튼 ── */
+button[kind="primary"], [data-testid="baseButton-primary"] {
+    background: #ffffff !important;
+    color: #000000 !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+    transition: opacity .15s !important;
+}
+button[kind="primary"]:hover, [data-testid="baseButton-primary"]:hover { opacity: .85 !important; }
+button[kind="secondary"], [data-testid="baseButton-secondary"] {
+    background: #1a1a1a !important;
+    color: #e8e8e8 !important;
+    border: 1px solid #333 !important;
+    border-radius: 8px !important;
+    transition: border-color .15s, background .15s !important;
+}
+button[kind="secondary"]:hover, [data-testid="baseButton-secondary"]:hover {
+    border-color: #888 !important;
+    background: #222 !important;
+}
+
+/* ── 폼 ── */
+[data-testid="stForm"] {
+    background: #141414 !important;
+    border: 1px solid #222 !important;
+    border-radius: 10px !important;
+    padding: 12px !important;
+}
+
+/* ── 탭 ── */
+[data-testid="stTabs"] [data-baseweb="tab-list"] {
+    background: #111 !important;
+    border-bottom: 1px solid #222 !important;
+    gap: 4px !important;
+}
+[data-testid="stTabs"] [data-baseweb="tab"] {
+    background: transparent !important;
+    color: #888 !important;
+    border-radius: 6px 6px 0 0 !important;
+    border: none !important;
+    font-size: .85em !important;
+    padding: 8px 14px !important;
+}
+[data-testid="stTabs"] [aria-selected="true"] {
+    background: #1e1e1e !important;
+    color: #fff !important;
+    border-bottom: 2px solid #fff !important;
+}
+
+/* ── 메트릭 ── */
+[data-testid="stMetric"] {
+    background: #141414 !important;
+    border: 1px solid #222 !important;
+    border-radius: 10px !important;
+    padding: 14px 18px !important;
+}
+[data-testid="stMetricLabel"] { color: #888 !important; font-size: .8em !important; }
+[data-testid="stMetricValue"] { color: #fff !important; font-size: 1.5em !important; }
+
+/* ── expander ── */
+[data-testid="stExpander"] {
+    background: #141414 !important;
+    border: 1px solid #222 !important;
+    border-radius: 8px !important;
+}
+[data-testid="stExpander"] summary { color: #ccc !important; }
+
+/* ── 구분선 ── */
+hr { border-color: #222 !important; }
+
+/* ── 데이터프레임 ── */
+[data-testid="stDataFrame"] iframe { filter: invert(0.88) hue-rotate(180deg) !important; border-radius: 8px !important; }
+
+/* ── 알림 박스 ── */
+[data-testid="stAlert"] {
+    border-radius: 8px !important;
+    border: 1px solid #333 !important;
+}
+.stSuccess { background: #0d1f12 !important; color: #6fcf97 !important; }
+.stWarning { background: #1f1a0d !important; color: #f2c94c !important; }
+.stError   { background: #1f0d0d !important; color: #eb5757 !important; }
+.stInfo    { background: #0d131f !important; color: #56b4d3 !important; }
+
+/* ── 셀렉트박스 ── */
+[data-baseweb="select"] div {
+    background-color: #1a1a1a !important;
+    color: #e8e8e8 !important;
+    border-color: #2e2e2e !important;
+}
+[data-baseweb="popover"] { background-color: #1a1a1a !important; }
+[data-baseweb="menu"] { background-color: #1a1a1a !important; }
+[data-baseweb="option"]:hover { background-color: #2a2a2a !important; }
+
+/* ── 진행바 ── */
+[data-testid="stProgressBar"] > div {
+    background: #1e1e1e !important;
+    border-radius: 4px !important;
+}
+[data-testid="stProgressBar"] > div > div {
+    background: linear-gradient(90deg, #ffffff, #aaaaaa) !important;
+    border-radius: 4px !important;
+}
+
+/* ── 캡션 & 마크다운 ── */
+.stCaption, [data-testid="stCaptionContainer"] { color: #666 !important; }
+h1, h2, h3, h4 { color: #f0f0f0 !important; }
+a { color: #b0b0b0 !important; }
+a:hover { color: #fff !important; }
+
+/* ── 로그인 화면 카드 ── */
+.login-card {
+    background: #141414;
+    border: 1px solid #222;
+    border-radius: 14px;
+    padding: 32px;
+}
+
+/* ── 스크롤바 ── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #111; }
+::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #555; }
+</style>
+""", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════
 # 로그인 체크
@@ -40,7 +220,7 @@ if not st.session_state.logged_in:
         with st.container():
             st.markdown("<br><br>", unsafe_allow_html=True)
             col_c = st.columns([1, 2, 1])[1]
-            col_c.markdown("#### 📊 YouTube 키워드 분석기")
+            col_c.markdown("#### 📊 마케팅신")
             col_c.caption("로딩 중…")
         st.stop()
 
@@ -54,19 +234,32 @@ if not st.session_state.logged_in:
             st.rerun()
 
 if not st.session_state.logged_in:
-    st.title("📊 YouTube 키워드 분석기")
-    st.markdown("---")
-    col1, col2, col3 = st.columns([1, 1.2, 1])
+    st.markdown("""
+    <div style="display:flex;flex-direction:column;align-items:center;
+                justify-content:center;min-height:60vh;padding-top:60px">
+        <div style="font-size:2.6rem;font-weight:800;letter-spacing:-1px;
+                    color:#fff;margin-bottom:4px">마케팅신</div>
+        <div style="font-size:.9rem;color:#555;margin-bottom:40px">
+            YouTube 키워드 인텔리전스 플랫폼
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    col1, col2, col3 = st.columns([1, 1, 1])
     with col2:
-        st.markdown("### 로그인")
+        st.markdown("""
+        <div style="background:#141414;border:1px solid #222;border-radius:14px;
+                    padding:28px 28px 20px">
+            <div style="font-size:1rem;font-weight:600;color:#e8e8e8;
+                        margin-bottom:18px;text-align:center">로그인</div>
+        </div>
+        """, unsafe_allow_html=True)
         with st.form("login_form"):
-            uname = st.text_input("아이디")
-            pw = st.text_input("비밀번호", type="password")
-            submitted = st.form_submit_button("로그인", use_container_width=True)
+            uname = st.text_input("아이디", label_visibility="collapsed", placeholder="아이디")
+            pw    = st.text_input("비밀번호", type="password", label_visibility="collapsed", placeholder="비밀번호")
+            submitted = st.form_submit_button("로그인", use_container_width=True, type="primary")
         if submitted:
             if auth.verify(uname, pw):
                 _token = auth.create_session(uname, days=30)
-                # max_age 설정: 브라우저 재시작 후에도 30일간 유지
                 _cookies.set('yt_session', _token, max_age=30 * 24 * 3600)
                 st.session_state.logged_in = True
                 st.session_state.username = uname
@@ -118,7 +311,15 @@ _api_bar = _api_text = None  # 사이드바 API 사용량 플레이스홀더
 
 # ── 사이드바 ──────────────────────────────────────────────
 with st.sidebar:
-    st.markdown(f"👤 **{auth.display_name(username)}** 님")
+    st.markdown("""
+    <div style="font-size:1.25rem;font-weight:800;letter-spacing:-.5px;
+                color:#fff;margin-bottom:2px">마케팅신</div>
+    <div style="font-size:.72rem;color:#444;margin-bottom:12px">
+        YouTube Intelligence
+    </div>
+    """, unsafe_allow_html=True)
+    st.markdown(f"<div style='font-size:.82rem;color:#666;margin-bottom:8px'>"
+                f"👤 {auth.display_name(username)}</div>", unsafe_allow_html=True)
     if st.button("로그아웃", use_container_width=True):
         _tok = st.session_state.get('session_token', '')
         if _tok:
@@ -270,22 +471,23 @@ def render_video_cards(data, keyword=''):
     global _CARD_CSS_INJECTED
     if not _CARD_CSS_INJECTED:
         st.markdown("""<style>
-.vc-thumb{width:100%;height:160px;object-fit:cover;border-radius:6px;display:block}
-.vc-no-thumb{width:100%;height:160px;background:#f0f0f0;border-radius:6px}
-.vc-title{height:44px;overflow:hidden;margin:7px 0 3px;
+.vc-thumb{width:100%;height:160px;object-fit:cover;border-radius:8px;display:block}
+.vc-no-thumb{width:100%;height:160px;background:#1a1a1a;border-radius:8px;border:1px solid #222}
+.vc-title{height:44px;overflow:hidden;margin:8px 0 4px;
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
-  font-weight:600;font-size:.88em;line-height:1.35em}
-.vc-title a{text-decoration:none;color:inherit}
-.vc-title a:hover{text-decoration:underline}
-.vc-tags{height:18px;font-size:.73em;color:#aaa;
+  font-weight:600;font-size:.88em;line-height:1.35em;color:#f0f0f0}
+.vc-title a{text-decoration:none;color:#f0f0f0}
+.vc-title a:hover{color:#fff;text-decoration:underline}
+.vc-tags{height:18px;font-size:.72em;color:#555;
   overflow:hidden;white-space:nowrap;margin-bottom:3px}
-.vc-meta{height:17px;font-size:.73em;color:#666;
+.vc-meta{height:17px;font-size:.72em;color:#555;
   overflow:hidden;white-space:nowrap;text-overflow:ellipsis;margin-bottom:6px}
-.vc-meta a{color:#666;text-decoration:none}
+.vc-meta a{color:#555;text-decoration:none}
+.vc-meta a:hover{color:#aaa}
 .vc-stats{width:100%;border-collapse:collapse;font-size:.8em;margin-bottom:4px}
-.vc-stats th{color:#999;font-weight:500;text-align:center;
-  padding:2px 0;border-bottom:1px solid #eee}
-.vc-stats td{font-weight:700;text-align:center;padding:3px 0}
+.vc-stats th{color:#555;font-weight:500;text-align:center;
+  padding:2px 0;border-bottom:1px solid #222}
+.vc-stats td{font-weight:700;text-align:center;padding:3px 0;color:#e8e8e8}
 </style>""", unsafe_allow_html=True)
         _CARD_CSS_INJECTED = True
 
@@ -422,6 +624,17 @@ def render_full_analysis(results, channels, related_kw, angle_kw, title_patterns
     # ════ 롱폼 ════
     with tabs[1]:
         st.markdown("### 🎬 롱폼")
+        _rc_lf = st.session_state.get('refresh_count', 0)
+        _cs_lf = st.session_state.get('refresh_seed', 0)
+        if _rc_lf < 3:
+            if st.button(f"🔄 알고리즘 초기화 ({_rc_lf+1}/3)", key="refresh_longform"):
+                st.session_state.refresh_seed = (_cs_lf + 1) % 4
+                st.session_state.refresh_count = _rc_lf + 1
+                st.session_state.run_keyword = keyword
+                st.session_state.history_view = None
+                st.rerun()
+        else:
+            st.caption("새로고침 3회 완료")
         if not longform:
             st.info("롱폼 결과가 없습니다.")
         else:
@@ -597,7 +810,18 @@ def render_full_analysis(results, channels, related_kw, angle_kw, title_patterns
 
     # ════ 채널 ════
     with tabs[6]:
-        st.markdown("### 📡 채널 분석")
+        st.markdown("### 📡 채널 분析")
+        _rc_ch = st.session_state.get('refresh_count', 0)
+        _cs_ch = st.session_state.get('refresh_seed', 0)
+        if _rc_ch < 3:
+            if st.button(f"🔄 알고리즘 초기화 ({_rc_ch+1}/3)", key="refresh_channel"):
+                st.session_state.refresh_seed = (_cs_ch + 1) % 4
+                st.session_state.refresh_count = _rc_ch + 1
+                st.session_state.run_keyword = keyword
+                st.session_state.history_view = None
+                st.rerun()
+        else:
+            st.caption("새로고침 3회 완료")
         if not channels:
             st.info("채널 정보를 불러오지 못했습니다.")
         else:
@@ -787,7 +1011,13 @@ def render_full_analysis(results, channels, related_kw, angle_kw, title_patterns
 # 페이지 라우팅
 # ══════════════════════════════════════════════════════════
 if page == "🔍 키워드 분석":
-    st.title("📊 YouTube 키워드 분석기")
+    st.markdown("""
+    <div style="font-size:1.6rem;font-weight:800;color:#fff;
+                letter-spacing:-.5px;margin-bottom:4px">키워드 분析</div>
+    <div style="font-size:.82rem;color:#444;margin-bottom:20px">
+        검색어를 입력하면 YouTube 트렌드·기회·채널을 분析합니다
+    </div>
+    """, unsafe_allow_html=True)
     trigger = st.session_state.run_keyword
 
     # ── 새 분석 실행 (run_keyword 가 세팅된 경우) ─────────────
@@ -863,7 +1093,7 @@ if page == "🔍 키워드 분석":
         if refresh_count < 3:
             next_seed  = (cur_seed + 1) % 4
             next_label = _seed_labels[next_seed]
-            if c_btn.button(f"🔄 다른 결과 보기 ({refresh_count+1}/3)",
+            if c_btn.button(f"🔄 알고리즘 초기화 ({refresh_count+1}/3)",
                             help=f"다음 모드: {next_label}\n다른 기준으로 새 영상 셋을 가져옵니다 (≈304 유닛)"):
                 st.session_state.refresh_seed  = next_seed
                 st.session_state.refresh_count = refresh_count + 1
@@ -918,8 +1148,12 @@ if page == "🔍 키워드 분석":
 
 # ══════════════════════════════════════════════════════════
 elif page == "🔥 트렌딩":
-    st.title("🔥 트렌딩 키워드")
-    st.caption("YouTube 인기 영상 기반 — 지금 사람들이 많이 보는 주제 키워드를 파악하고 콘텐츠 아이디어를 얻으세요.")
+    st.markdown("""
+    <div style="font-size:1.6rem;font-weight:800;color:#fff;letter-spacing:-.5px;margin-bottom:4px">
+        🔥 트렌딩 키워드</div>
+    <div style="font-size:.82rem;color:#444;margin-bottom:20px">
+        YouTube 인기 영상 기반 — 지금 사람들이 많이 보는 주제를 파악하세요
+    </div>""", unsafe_allow_html=True)
 
     if not api_key:
         st.warning("API 키가 없습니다. **🔍 키워드 분석** 페이지에서 YouTube API 키를 먼저 입력해주세요.")
@@ -1053,8 +1287,12 @@ elif page == "🔥 트렌딩":
 
 # ══════════════════════════════════════════════════════════
 elif page == "📺 쇼츠 분석기":
-    st.title("📺 채널 쇼츠 조회수 분석기")
-    st.caption("채널 링크를 입력하면 최근 4주간 주별 쇼츠 평균 조회수를 분석합니다.")
+    st.markdown('''
+    <div style="font-size:1.6rem;font-weight:800;color:#fff;letter-spacing:-.5px;margin-bottom:4px">
+        📺 쇼츠 조회수 분석기</div>
+    <div style="font-size:.82rem;color:#444;margin-bottom:20px">
+        체널 링크를 입력하면 최근 4주간 주별 쇼츠 조회수를 분석합니다
+    </div>''', unsafe_allow_html=True)
 
     if not api_key:
         st.error("사이드바에서 API 키를 먼저 입력해주세요.")
@@ -1134,8 +1372,12 @@ elif page == "📺 쇼츠 분석기":
 
 # ══════════════════════════════════════════════════════════
 elif page == "📌 저장된 영상":
-    st.title("📌 저장된 영상")
-    st.caption("저장된 영상은 직접 삭제하기 전까지 사라지지 않습니다.")
+    st.markdown('''
+    <div style="font-size:1.6rem;font-weight:800;color:#fff;letter-spacing:-.5px;margin-bottom:4px">
+        📌 저장된 영상</div>
+    <div style="font-size:.82rem;color:#444;margin-bottom:20px">
+        직접 삭제하기 전까지 영구 보관됩니다
+    </div>''', unsafe_allow_html=True)
     saved = storage.get_saved_by_user(username)
 
     if 'confirm_del_video' not in st.session_state:
@@ -1200,7 +1442,12 @@ elif page == "📌 저장된 영상":
 
 # ══════════════════════════════════════════════════════════
 elif page == "⚙️ 팀 관리":
-    st.title("⚙️ 팀 관리")
+    st.markdown('''
+    <div style="font-size:1.6rem;font-weight:800;color:#fff;letter-spacing:-.5px;margin-bottom:4px">
+        ⚙️ 팀 관리</div>
+    <div style="font-size:.82rem;color:#444;margin-bottom:20px">
+        팀원 계정 관리 및 권한 설정
+    </div>''', unsafe_allow_html=True)
 
     col1, col2 = st.columns(2)
     with col1:
