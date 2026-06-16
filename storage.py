@@ -1,10 +1,13 @@
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 SAVED_FILE     = os.path.join(os.path.dirname(__file__), 'saved_videos.json')
 API_USAGE_FILE = os.path.join(os.path.dirname(__file__), 'api_usage.json')
 HISTORY_FILE   = os.path.join(os.path.dirname(__file__), 'search_history.json')
+SEARCH_CACHE_FILE   = os.path.join(os.path.dirname(__file__), 'search_cache.json')
+TRENDING_CACHE_FILE = os.path.join(os.path.dirname(__file__), 'trending_cache.json')
+_CACHE_MAX_ENTRIES = 80   # 파일당 최대 항목 수
 
 
 def load_all():
@@ -134,3 +137,58 @@ def get_search_history(username):
     """오늘의 사용자 검색 기록 반환 (최신순)."""
     _, history = _load_history_file()
     return history.get(username, [])
+
+
+# ── 결과 캐시 (검색/트렌딩 공유 캐시, TTL=2시간) ─────────────
+
+def _load_cache_file(fname):
+    try:
+        with open(fname, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _save_cache_file(fname, cache):
+    if len(cache) > _CACHE_MAX_ENTRIES:
+        sorted_items = sorted(cache.items(), key=lambda x: x[1].get('ts', ''))
+        cache = dict(sorted_items[-_CACHE_MAX_ENTRIES:])
+    try:
+        with open(fname, 'w', encoding='utf-8') as f:
+            json.dump(cache, f, ensure_ascii=False)
+    except Exception:
+        pass
+
+def get_search_cache(keyword: str, seed: int, ttl_hours: int = 2):
+    """캐시 히트 시 data 반환, 없거나 만료 시 None."""
+    cache = _load_cache_file(SEARCH_CACHE_FILE)
+    entry = cache.get(f"{keyword}::{seed}")
+    if not entry:
+        return None
+    try:
+        if datetime.now() - datetime.fromisoformat(entry['ts']) > timedelta(hours=ttl_hours):
+            return None
+    except Exception:
+        return None
+    return entry.get('data')
+
+def set_search_cache(keyword: str, seed: int, data: dict):
+    cache = _load_cache_file(SEARCH_CACHE_FILE)
+    cache[f"{keyword}::{seed}"] = {'ts': datetime.now().isoformat(), 'data': data}
+    _save_cache_file(SEARCH_CACHE_FILE, cache)
+
+def get_trending_cache(keyword: str, seed: int, ttl_hours: int = 2):
+    cache = _load_cache_file(TRENDING_CACHE_FILE)
+    entry = cache.get(f"{keyword}::{seed}")
+    if not entry:
+        return None
+    try:
+        if datetime.now() - datetime.fromisoformat(entry['ts']) > timedelta(hours=ttl_hours):
+            return None
+    except Exception:
+        return None
+    return entry.get('data')
+
+def set_trending_cache(keyword: str, seed: int, data):
+    cache = _load_cache_file(TRENDING_CACHE_FILE)
+    cache[f"{keyword}::{seed}"] = {'ts': datetime.now().isoformat(), 'data': data}
+    _save_cache_file(TRENDING_CACHE_FILE, cache)

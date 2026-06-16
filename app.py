@@ -1,5 +1,6 @@
 import os
 import re
+import hashlib
 import html as _html
 from datetime import datetime, timedelta
 from collections import Counter
@@ -274,6 +275,17 @@ if not st.session_state.logged_in:
 # ══════════════════════════════════════════════════════════
 username = st.session_state.username
 
+_SEED_LABELS = [
+    '기본 (관련도+조회수)',
+    '최신인기 (날짜+평점, 최근1년)',
+    '숨겨진발굴 (평점+날짜, 최근2년)',
+    '급상승 (조회수+관련도, 최근6개월)',
+]
+
+def get_user_seed_offset(uname: str) -> int:
+    """사용자별 고유 시드 오프셋 — 같은 키워드를 다른 사용자가 검색해도 서로 다른 결과"""
+    return int(hashlib.md5(uname.encode()).hexdigest(), 16) % 4
+
 if 'run_keyword' not in st.session_state:
     st.session_state.run_keyword = ''
 if 'refresh_seed' not in st.session_state:
@@ -284,14 +296,22 @@ if 'history_view' not in st.session_state:
     # 새로고침 후에도 오늘 가장 최근 검색 결과를 자동 복원
     _today_hist = storage.get_search_history(username)
     st.session_state.history_view = _today_hist[0] if _today_hist else None
-if 'trending_keywords'  not in st.session_state:
-    st.session_state.trending_keywords  = []
-if 'trending_selected'  not in st.session_state:
-    st.session_state.trending_selected  = ''
-if 'trending_analysis'  not in st.session_state:
-    st.session_state.trending_analysis  = None
-if 'trending_period'    not in st.session_state:
-    st.session_state.trending_period    = 'week'
+if 'trending_keywords'      not in st.session_state:
+    st.session_state.trending_keywords      = []
+if 'trending_selected'      not in st.session_state:
+    st.session_state.trending_selected      = ''
+if 'trending_analysis'      not in st.session_state:
+    st.session_state.trending_analysis      = None
+if 'trending_period'        not in st.session_state:
+    st.session_state.trending_period        = 'week'
+if 'trending_refresh_seed'  not in st.session_state:
+    st.session_state.trending_refresh_seed  = 0
+if 'trending_refresh_count' not in st.session_state:
+    st.session_state.trending_refresh_count = 0
+if 'custom_kw_input'        not in st.session_state:
+    st.session_state.custom_kw_input        = ''
+if 'custom_kw_results'      not in st.session_state:
+    st.session_state.custom_kw_results      = None
 
 # 사용자별 API 키 로드 (users.json → 없으면 env fallback, 관리자 전용)
 if 'api_key' not in st.session_state:
@@ -371,7 +391,7 @@ with st.sidebar:
         st.markdown("**📊 오늘 내 API 사용량**")
         _api_bar = st.empty()
         _api_text = st.empty()
-        st.caption("분석 1회 ≈ 304 유닛 (관련도·조회수·쇼츠 3회 검색)")
+        st.caption("분析 1회 ≈ 202 유닛 · 2시간 내 동일 검색은 0 유닛 (캐시 적용)")
         _u = st.session_state.get('api_units_used', 0)
         _api_bar.progress(min(int(_u / 10_000 * 100), 100))
         _api_text.caption(f"{_u:,} / 10,000 유닛 사용 ({10_000 - _u:,} 남음)")
@@ -402,13 +422,20 @@ with st.sidebar:
 if run:
     st.session_state.run_keyword   = keyword_input
     st.session_state.history_view  = None
-    st.session_state.refresh_seed  = 0
+    st.session_state.refresh_seed  = get_user_seed_offset(username)   # 사용자별 고유 시작 시드
     st.session_state.refresh_count = 0   # 새 키워드마다 새로고침 횟수 리셋
 
 # ══════════════════════════════════════════════════════════
 # 헬퍼 함수
 # ══════════════════════════════════════════════════════════
 def run_analysis(api_key, keyword, max_results, refresh_seed=0):
+    # ── 캐시 확인 (2시간 TTL, 팀원 공유) ──────────────────────
+    cached = storage.get_search_cache(keyword, refresh_seed)
+    if cached:
+        st.toast("캐시된 결과를 불러왔습니다 (API 0 유닛)", icon="⚡")
+        return (cached['results'], cached['channels'], cached['related_kw'],
+                cached['angle_kw'], cached['title_patterns'])
+
     analyzer = YouTubeAnalyzer(api_key)
     results = analyzer.analyze_keyword(keyword, max_results, refresh_seed=refresh_seed)
     channels = analyzer.get_channel_analysis(results)
@@ -418,8 +445,14 @@ def run_analysis(api_key, keyword, max_results, refresh_seed=0):
     for v in results:
         ch = channels.get(v['channel_id'], {})
         v['subscriber_count'] = ch.get('subscriber_count', 1)
-    # API 유닛 누적: search×3(300) + videos.list(최대 3) + channels(1) ≈ 304
-    st.session_state.api_units_used = storage.add_api_usage(304, st.session_state.username)
+    # API 유닛 누적: search×2(200) + videos.list(1~2) + channels(1) ≈ 202
+    st.session_state.api_units_used = storage.add_api_usage(202, st.session_state.username)
+
+    # 결과 캐시 저장
+    storage.set_search_cache(keyword, refresh_seed, {
+        'results': results, 'channels': channels, 'related_kw': related_kw,
+        'angle_kw': angle_kw, 'title_patterns': title_patterns,
+    })
     return results, channels, related_kw, angle_kw, title_patterns
 
 
@@ -1076,23 +1109,17 @@ if page == "🔍 키워드 분석":
         disp_label  = hv.get('display_label', kw)
         cur_seed    = hv.get('refresh_seed', 0)
 
-        _seed_labels = [
-            '기본 (관련도+조회수)',
-            '최신인기 (날짜+평점, 최근1년)',
-            '숨겨진발굴 (평점+날짜, 최근2년)',
-            '급상승 (조회수+관련도, 최근6개월)',
-        ]
         st.markdown(f"## 🔎 `{disp_label}` 분석 결과")
         c_info, c_btn = st.columns([4, 1])
         refresh_count = st.session_state.get('refresh_count', 0)
         c_info.caption(
-            f"알고리즘 모드: **{_seed_labels[cur_seed % 4]}** · {hv['time']} 검색"
+            f"알고리즘 모드: **{_SEED_LABELS[cur_seed % 4]}** · {hv['time']} 검색"
             + (f" · 새로고침 {refresh_count}/3회 사용" if refresh_count > 0 else "")
         )
 
         if refresh_count < 3:
             next_seed  = (cur_seed + 1) % 4
-            next_label = _seed_labels[next_seed]
+            next_label = _SEED_LABELS[next_seed]
             if c_btn.button(f"🔄 알고리즘 초기화 ({refresh_count+1}/3)",
                             help=f"다음 모드: {next_label}\n다른 기준으로 새 영상 셋을 가져옵니다 (≈304 유닛)"):
                 st.session_state.refresh_seed  = next_seed
@@ -1192,15 +1219,94 @@ elif page == "🔥 트렌딩":
         else:
             st.warning("트렌딩 키워드를 불러오지 못했습니다. API 키와 할당량을 확인해주세요.")
 
+    # ── 내 키워드 연관 검색어 분析 ──────────────────────────────
+    st.divider()
+    st.markdown("### 🎯 내 키워드 연관 검색어 분析")
+    st.caption("영상으로 만들 키워드를 입력하면 검색량 순 연관어와 콘텐츠 추천을 바로 보여줍니다. (~101 유닛)")
+
+    _ck_col1, _ck_col2 = st.columns([4, 1])
+    with _ck_col1:
+        _ck_input = st.text_input(
+            "키워드", placeholder="예: 철학, 주식 투자, 다이어트",
+            label_visibility="collapsed", key="ck_text_input"
+        )
+    with _ck_col2:
+        _ck_run = st.button("🔍 분析", type="primary", use_container_width=True, key="ck_run_btn")
+
+    if _ck_run and _ck_input.strip():
+        _ck_kw = _ck_input.strip()
+        _ck_hit = storage.get_trending_cache(_ck_kw, -1)  # seed -1 = 커스텀 키워드 캐시
+        if _ck_hit:
+            st.session_state.custom_kw_input   = _ck_kw
+            st.session_state.custom_kw_results = tuple(_ck_hit)
+            st.toast("캐시된 결과를 불러왔습니다 (API 0 유닛)", icon="⚡")
+        else:
+            with st.spinner(f"'{_ck_kw}' 연관어 분析 중..."):
+                try:
+                    _ck_analyzer = YouTubeAnalyzer(api_key)
+                    _ck_rel = _ck_analyzer.get_related_keywords(_ck_kw)
+                    _ck_rel2, _ck_ang, _ck_vids = _ck_analyzer.get_trending_analysis(_ck_kw)
+                    st.session_state.custom_kw_input   = _ck_kw
+                    st.session_state.custom_kw_results = (_ck_rel, _ck_ang)
+                    storage.set_trending_cache(_ck_kw, -1, [_ck_rel, _ck_ang])
+                    st.session_state.api_units_used = storage.add_api_usage(101, username)
+                    if _api_bar:
+                        _u = st.session_state.api_units_used
+                        _api_bar.progress(min(int(_u / 10_000 * 100), 100))
+                        _api_text.caption(f"{_u:,} / 10,000 유닛 사용 ({10_000 - _u:,} 남음)")
+                except Exception as _ck_e:
+                    st.error(f"API 오류: {_ck_e}")
+        st.rerun()
+
+    _ck_saved_input   = st.session_state.get('custom_kw_input', '')
+    _ck_saved_results = st.session_state.get('custom_kw_results')
+    if _ck_saved_results and _ck_saved_input:
+        _ck_r, _ck_a = _ck_saved_results
+        _ck_sugg = get_content_suggestions(_ck_saved_input, _ck_r, _ck_a)
+
+        st.markdown(f"#### 🔍 `{_ck_saved_input}` 연관 검색어 (검색량 순위)")
+        st.caption("순위 = YouTube 자동완성 기반 검색 빈도. 클릭하면 해당 키워드 심층 분析.")
+        if _ck_r:
+            for _idx, (_ckw, _clbl) in enumerate(_ck_r):
+                if _idx % 3 == 0:
+                    _ck_rcols = st.columns(3)
+                with _ck_rcols[_idx % 3]:
+                    st.caption(_clbl)
+                    if st.button(_ckw, key=f"ck_rel_{_idx}", use_container_width=True):
+                        st.session_state.trending_selected      = _ckw
+                        st.session_state.trending_analysis      = None
+                        st.session_state.trending_refresh_seed  = get_user_seed_offset(username)
+                        st.session_state.trending_refresh_count = 0
+                        st.rerun()
+        else:
+            st.info("연관 검색어를 불러오지 못했습니다.")
+
+        st.divider()
+        st.markdown("#### 💡 콘텐츠 주제 추천")
+        st.caption("이 키워드로 만들 수 있는 영상 제목 아이디어")
+        _ck_c1, _ck_c2 = st.columns(2)
+        for _csi, _cs in enumerate(_ck_sugg):
+            with (_ck_c1 if _csi % 2 == 0 else _ck_c2):
+                st.markdown(
+                    f"<div style='border:1px solid #333;border-radius:8px;"
+                    f"padding:12px 14px;margin-bottom:10px;background:#141414'>"
+                    f"<span style='font-size:.72em;color:#888'>{_cs['type']}</span><br>"
+                    f"<strong style='font-size:.91em'>{_html.escape(_cs['title'])}</strong><br>"
+                    f"<span style='font-size:.76em;color:#aaa'>{_html.escape(_cs['reason'])}</span>"
+                    f"</div>",
+                    unsafe_allow_html=True
+                )
+
     trending = st.session_state.trending_keywords
     if not trending:
         st.info("**🔍 키워드 불러오기** 버튼을 눌러 트렌딩 키워드를 가져오세요.")
         st.stop()
 
     # ── 트렌딩 키워드 그리드 ─────────────────────────────────
+    st.divider()
     period_label = "일주일" if st.session_state.trending_period == 'week' else "한달"
     st.markdown(f"### 📊 {period_label} 인기 키워드")
-    st.caption("클릭하면 해당 키워드로 연관 키워드·다른 시각·콘텐츠 아이디어를 분석합니다.")
+    st.caption("클릭하면 해당 키워드로 연관 키워드·다른 시각·콘텐츠 아이디어를 분析합니다.")
 
     for _i in range(0, min(len(trending), 24), 4):
         _row = trending[_i:_i+4]
@@ -1211,8 +1317,10 @@ elif page == "🔥 트렌딩":
                 _label  = f"✅ {_kw}" if _is_sel else _kw
                 if st.button(_label, key=f"tk_{_i}_{_kw}", use_container_width=True,
                               type="primary" if _is_sel else "secondary"):
-                    st.session_state.trending_selected = _kw
-                    st.session_state.trending_analysis = None
+                    st.session_state.trending_selected      = _kw
+                    st.session_state.trending_analysis      = None
+                    st.session_state.trending_refresh_seed  = get_user_seed_offset(username)
+                    st.session_state.trending_refresh_count = 0
                     st.rerun()
                 _heat = "🔥🔥🔥" if _cnt >= 80 else ("🔥🔥" if _cnt >= 50 else "🔥")
                 st.caption(f"{_heat} 인기도 {_cnt}점")
@@ -1223,19 +1331,44 @@ elif page == "🔥 트렌딩":
         st.stop()
 
     st.divider()
-    st.markdown(f"## 🔎 `{selected}` 심층 분석")
+    st.markdown(f"## 🔎 `{{selected}}` 심층 분석")
+
+    _tr_rc = st.session_state.get('trending_refresh_count', 0)
+    _tr_cs = st.session_state.get('trending_refresh_seed', 0)
+    _tr_info_col, _tr_btn_col = st.columns([4, 1])
+    _tr_info_col.caption(
+        f"알고리즘 모드: **{_SEED_LABELS[_tr_cs % 4]}**"
+        + (f" · 새로고침 {_tr_rc}/3회 사용" if _tr_rc > 0 else "")
+    )
+    if _tr_rc < 3:
+        if _tr_btn_col.button(
+            f"🔄 알고리즘 초기화 ({_tr_rc+1}/3)", key="tr_refresh_btn",
+            help=f"다음 모드: {_SEED_LABELS[(_tr_cs+1)%4]}\n다른 기준으로 영상을 다시 불러옵니다 (~101 유닛)"
+        ):
+            st.session_state.trending_refresh_seed  = (_tr_cs + 1) % 4
+            st.session_state.trending_refresh_count = _tr_rc + 1
+            st.session_state.trending_analysis = None
+            st.rerun()
+    else:
+        _tr_btn_col.caption("새로고침 3회 완료")
 
     if st.session_state.trending_analysis is None:
-        with st.spinner(f"'{selected}' 분석 중..."):
-            _analyzer = YouTubeAnalyzer(api_key)
-            _rel, _ang, _vids = _analyzer.get_trending_analysis(selected)
-        st.session_state.trending_analysis = (_rel, _ang, _vids)
-        st.session_state.api_units_used = storage.add_api_usage(101, username)
-        if _api_bar:
-            _u = st.session_state.api_units_used
-            _api_bar.progress(min(int(_u / 10_000 * 100), 100))
-            _api_text.caption(f"{_u:,} / 10,000 유닛 사용 ({10_000 - _u:,} 남음)")
-
+        _tr_seed = st.session_state.get('trending_refresh_seed', 0)
+        _tr_cached = storage.get_trending_cache(selected, _tr_seed)
+        if _tr_cached:
+            st.session_state.trending_analysis = tuple(_tr_cached)
+            st.toast("캐시된 결과를 불러왔습니다 (API 0 유닛)", icon="⚡")
+        else:
+            with st.spinner(f"'{selected}' 분석 중..."):
+                _analyzer = YouTubeAnalyzer(api_key)
+                _rel, _ang, _vids = _analyzer.get_trending_analysis(selected, refresh_seed=_tr_seed)
+            st.session_state.trending_analysis = (_rel, _ang, _vids)
+            storage.set_trending_cache(selected, _tr_seed, [_rel, _ang, _vids])
+            st.session_state.api_units_used = storage.add_api_usage(101, username)
+            if _api_bar:
+                _u = st.session_state.api_units_used
+                _api_bar.progress(min(int(_u / 10_000 * 100), 100))
+                _api_text.caption(f"{_u:,} / 10,000 유닛 사용 ({10_000 - _u:,} 남음)")
     _rel_kw, _ang_kw, _ = st.session_state.trending_analysis
     _suggestions = get_content_suggestions(selected, _rel_kw, _ang_kw)
 
@@ -1251,8 +1384,10 @@ elif page == "🔥 트렌딩":
                 with _rcols[_idx % 3]:
                     st.caption(_lbl)
                     if st.button(_kw2, key=f"tr_rel_{_idx}", use_container_width=True):
-                        st.session_state.trending_selected = _kw2
-                        st.session_state.trending_analysis = None
+                        st.session_state.trending_selected      = _kw2
+                        st.session_state.trending_analysis      = None
+                        st.session_state.trending_refresh_seed  = get_user_seed_offset(username)
+                        st.session_state.trending_refresh_count = 0
                         st.rerun()
         else:
             st.info("연관 키워드를 불러오지 못했습니다.")
@@ -1266,8 +1401,10 @@ elif page == "🔥 트렌딩":
                 with _acols[_idx % 3]:
                     st.caption(f"{_cnt2}개 영상")
                     if st.button(_kw2, key=f"tr_ang_{_idx}", use_container_width=True):
-                        st.session_state.trending_selected = _kw2
-                        st.session_state.trending_analysis = None
+                        st.session_state.trending_selected      = _kw2
+                        st.session_state.trending_analysis      = None
+                        st.session_state.trending_refresh_seed  = get_user_seed_offset(username)
+                        st.session_state.trending_refresh_count = 0
                         st.rerun()
         else:
             st.info("태그 데이터가 부족합니다.")

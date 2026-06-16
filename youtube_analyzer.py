@@ -56,13 +56,12 @@ class YouTubeAnalyzer:
             after = (datetime.utcnow() - timedelta(days=cfg['days'])).strftime('%Y-%m-%dT%H:%M:%SZ')
 
         relevance_ids = self._search_video_ids(keyword, max_results, order=cfg['main'], published_after=after)
-        viewcount_ids = self._search_video_ids(keyword, max_results, order=cfg['sub'],  published_after=after)
         shorts_ids    = self._search_video_ids(f"{keyword} #shorts", 50, order=cfg['shorts'], published_after=after)
 
-        # 중복 제거: 쇼츠 → 조회수순 → 관련도순 우선 배치
+        # 중복 제거: 쇼츠 → 메인 순 우선 배치 (sub 검색 제거로 100 유닛 절감)
         seen = set()
         video_ids = []
-        for vid in shorts_ids + viewcount_ids + relevance_ids:
+        for vid in shorts_ids + relevance_ids:
             if vid not in seen:
                 seen.add(vid)
                 video_ids.append(vid)
@@ -371,14 +370,19 @@ class YouTubeAnalyzer:
         )
         return scored[:20]
 
-    def get_trending_analysis(self, keyword, max_results=20):
+    def get_trending_analysis(self, keyword, max_results=20, refresh_seed=0):
         """
         트렌딩 키워드 상세 분석 (가벼운 버전 — 연관/시각 키워드용)
         API 비용: search(100) + videos(1) ≈ 101유닛
+        refresh_seed: 0=기본 / 1=최신인기 / 2=숨겨진발굴 / 3=6개월급상승
         반환: (related_kw, angle_kw, videos)
         """
         try:
-            video_ids = self._search_video_ids(keyword, max_results)
+            cfg   = self._REFRESH_CONFIGS[refresh_seed % len(self._REFRESH_CONFIGS)]
+            after = None
+            if cfg['days']:
+                after = (datetime.utcnow() - timedelta(days=cfg['days'])).strftime('%Y-%m-%dT%H:%M:%SZ')
+            video_ids = self._search_video_ids(keyword, max_results, order=cfg['main'], published_after=after)
             if not video_ids:
                 return [], [], []
             resp = self.youtube.videos().list(
