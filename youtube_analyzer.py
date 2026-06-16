@@ -232,12 +232,10 @@ class YouTubeAnalyzer:
         """
         인기 영상 제목 기반 트렌딩 키워드 추출.
         반환: [(keyword, hotness_score), ...]  — hotness_score: 최고 키워드=100 기준 상대 점수
-          week : videos.list(chart=mostPopular) → 1 유닛
-          month: search.list(relevanceLanguage='ko') + videos.list → 101 유닛
+          week : videos.list(chart=mostPopular, regionCode) → 1 유닛
+          month: search × 5카테고리 + videos.list → ~106 유닛
 
-        점수 = 출현빈도(60%) + 해당 영상 평균 조회수 비율(40%)
-        · search.list 에서 regionCode + order=viewCount 조합은 API 미지원 →
-          month 는 relevanceLanguage='ko' 사용
+        예외는 호출자에게 전파 (app.py 에서 사용자에게 표시)
         """
         stop = {
             # 조사·어미
@@ -274,80 +272,104 @@ class YouTubeAnalyzer:
             'part','feat','live','cover','challenge','video','clip',
         }
 
-        try:
-            if period == 'week':
-                resp  = self.youtube.videos().list(
+        items = []
+
+        if period == 'week':
+            resp = self.youtube.videos().list(
+                part='snippet,statistics',
+                chart='mostPopular',
+                regionCode=region,
+                maxResults=50
+            ).execute()
+            items = resp.get('items', [])
+
+        else:
+            # ── 월간: 카테고리 시드 5종으로 인기 영상 수집 ──
+            # search.list 에서 regionCode + order=viewCount 조합 미지원 →
+            # relevanceLanguage='ko' + 카테고리별 시드 키워드로 다양성 확보
+            after = (datetime.utcnow() - timedelta(days=30)).strftime('%Y-%m-%dT%H:%M:%SZ')
+            seeds = ['먹방', '여행', '게임', '운동', '챌린지']
+            seen_ids: set = set()
+            for seed in seeds:
+                try:
+                    sr = self.youtube.search().list(
+                        part='id', type='video',
+                        q=seed,
+                        order='viewCount',
+                        publishedAfter=after,
+                        relevanceLanguage='ko',
+                        maxResults=10,
+                    ).execute()
+                    for it in sr.get('items', []):
+                        seen_ids.add(it['id']['videoId'])
+                except Exception:
+                    continue
+
+            if seen_ids:
+                vr = self.youtube.videos().list(
+                    part='snippet,statistics',
+                    id=','.join(list(seen_ids)[:50])
+                ).execute()
+                items = vr.get('items', [])
+
+            # 시드 검색이 전혀 안 되면 mostPopular fallback
+            if not items:
+                resp = self.youtube.videos().list(
                     part='snippet,statistics',
                     chart='mostPopular',
                     regionCode=region,
-                    maxResults=max_results
+                    maxResults=50
                 ).execute()
                 items = resp.get('items', [])
-            else:
-                # month: regionCode + order=viewCount 조합은 YouTube API 미지원.
-                # relevanceLanguage='ko' 로 한국어 콘텐츠 필터링
-                after = (datetime.utcnow() - timedelta(days=30)).strftime('%Y-%m-%dT%H:%M:%SZ')
-                s_resp = self.youtube.search().list(
-                    part='id', type='video',
-                    order='viewCount',
-                    publishedAfter=after,
-                    relevanceLanguage='ko',
-                    maxResults=max_results
-                ).execute()
-                ids = [i['id']['videoId'] for i in s_resp.get('items', [])]
-                if not ids:
-                    return []
-                v_resp = self.youtube.videos().list(
-                    part='snippet,statistics',
-                    id=','.join(ids[:50])
-                ).execute()
-                items = v_resp.get('items', [])
 
-            if not items:
-                return []
+        if not items:
+            return []
 
-            # ── 조회수 기반 가중 점수 계산 ──────────────────────
-            view_counts = [int(it.get('statistics', {}).get('viewCount', 0)) for it in items]
-            avg_view    = max(sum(view_counts) / len(view_counts), 1)
-            n           = len(items)
+        # ── 조회수 기반 가중 점수 계산 ──────────────────────────
+        view_counts = [int(it.get('statistics', {}).get('viewCount', 0)) for it in items]
+        avg_view    = max(sum(view_counts) / len(view_counts), 1)
+        n           = len(items)
 
-            kw_cnt   = Counter()   # 등장 영상 수
-            kw_vsum  = {}          # 등장한 영상들의 조회수 합
+        kw_cnt  : Counter = Counter()
+        kw_vsum : dict    = {}
 
-            for item, vc in zip(items, view_counts):
-                title = item['snippet'].get('title', '')
-                seen  = set()
-                for w in re.findall(r'[가-힣]{2,}|[a-zA-Z]{4,}', title):
-                    if w.lower() in stop or w in seen:
-                        continue
-                    seen.add(w)
-                    kw_cnt[w] += 1
-                    kw_vsum[w] = kw_vsum.get(w, 0) + vc
-
-            # 최소 임계값: 전체 영상의 8% 이상 등장 (50개 기준 ≈ 4회)
-            min_cnt = max(3, int(n * 0.08))
-
-            raw = {}
-            for kw, cnt in kw_cnt.items():
-                if cnt < min_cnt:
+        for item, vc in zip(items, view_counts):
+            title = item['snippet'].get('title', '')
+            seen: set = set()
+            for w in re.findall(r'[가-힣]{2,}|[a-zA-Z]{4,}', title):
+                if w.lower() in stop or w in seen:
                     continue
-                freq_s = cnt / n                                  # 0~1  빈도 점수
-                view_s = (kw_vsum[kw] / cnt) / avg_view          # ~1   조회수 영향
+                seen.add(w)
+                kw_cnt[w] += 1
+                kw_vsum[w] = kw_vsum.get(w, 0) + vc
+
+        if not kw_cnt:
+            return []
+
+        # ── 임계값: 최소 2회 등장 (이전 8% 기준 → 결과 공백 방지) ──
+        min_cnt = max(2, int(n * 0.04))
+
+        raw: dict = {}
+        for kw, cnt in kw_cnt.items():
+            if cnt < min_cnt:
+                continue
+            freq_s = cnt / n
+            view_s = (kw_vsum[kw] / cnt) / avg_view
+            raw[kw] = freq_s * 0.6 + min(view_s, 3) / 3 * 0.4
+
+        # 임계값 통과 없으면 상위 빈도 키워드를 그대로 사용
+        if not raw:
+            for kw, cnt in kw_cnt.most_common(30):
+                freq_s = cnt / n
+                view_s = (kw_vsum[kw] / cnt) / avg_view
                 raw[kw] = freq_s * 0.6 + min(view_s, 3) / 3 * 0.4
 
-            if not raw:
-                return []
-
-            # 최고값 = 100 으로 정규화
-            max_s  = max(raw.values())
-            scored = sorted(
-                [(kw, max(1, round(s / max_s * 100))) for kw, s in raw.items()],
-                key=lambda x: x[1], reverse=True
-            )
-            return scored[:20]
-
-        except Exception:
-            return []
+        max_s  = max(raw.values())
+        scored = sorted(
+            [(kw, max(1, round(s / max_s * 100))) for kw, s in raw.items()],
+            key=lambda x: x[1], reverse=True
+        )
+        return scored[:20]
 
     def get_trending_analysis(self, keyword, max_results=20):
         """

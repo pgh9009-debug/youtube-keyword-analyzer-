@@ -1170,15 +1170,19 @@ elif page == "🔥 트렌딩":
     period_code = 'week' if '일주일' in period_opt else 'month'
 
     if load_btn:
-        with st.spinner("트렌딩 키워드 분석 중..."):
+        with st.spinner("트렌딩 키워드 분析 중..."):
             _analyzer = YouTubeAnalyzer(api_key)
-            _kws = _analyzer.get_trending_keywords(period=period_code)
+            try:
+                _kws = _analyzer.get_trending_keywords(period=period_code)
+            except Exception as _e:
+                st.error(f"API 오류: {_e}")
+                st.stop()
         if _kws:
             st.session_state.trending_keywords = _kws
             st.session_state.trending_period   = period_code
             st.session_state.trending_selected = ''
             st.session_state.trending_analysis = None
-            _units = 1 if period_code == 'week' else 101
+            _units = 1 if period_code == 'week' else 106
             st.session_state.api_units_used = storage.add_api_usage(_units, username)
             if _api_bar:
                 _u = st.session_state.api_units_used
@@ -1186,7 +1190,7 @@ elif page == "🔥 트렌딩":
                 _api_text.caption(f"{_u:,} / 10,000 유닛 사용 ({10_000 - _u:,} 남음)")
             st.rerun()
         else:
-            st.warning("트렌딩 키워드를 불러오지 못했습니다. API 키와 네트워크를 확인해주세요.")
+            st.warning("트렌딩 키워드를 불러오지 못했습니다. API 키와 할당량을 확인해주세요.")
 
     trending = st.session_state.trending_keywords
     if not trending:
