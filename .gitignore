@@ -1,0 +1,25 @@
+# 민감 데이터 / 로컬 상태 파일
+users.json
+sessions.json
+api_usage.json
+saved_videos.json
+search_history.json
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
