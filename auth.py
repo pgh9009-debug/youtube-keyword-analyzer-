@@ -3,9 +3,13 @@ import hashlib
 import os
 import secrets
 from datetime import datetime, timedelta
+from filelock import FileLock
 
 USERS_FILE    = os.path.join(os.path.dirname(__file__), 'users.json')
 SESSIONS_FILE = os.path.join(os.path.dirname(__file__), 'sessions.json')
+
+def _ulock(): return FileLock(USERS_FILE    + '.lock', timeout=5)
+def _slock(): return FileLock(SESSIONS_FILE + '.lock', timeout=5)
 
 
 def _hash(password):
@@ -13,17 +17,20 @@ def _hash(password):
 
 
 def load_users():
-    if not os.path.exists(USERS_FILE):
-        default = {"admin": {"password": _hash("admin123"), "name": "관리자"}}
-        _write(default)
-        return default
-    with open(USERS_FILE, 'r', encoding='utf-8') as f:
-        return json.load(f)
+    with _ulock():
+        if not os.path.exists(USERS_FILE):
+            default = {"admin": {"password": _hash("admin123"), "name": "관리자"}}
+            with open(USERS_FILE, 'w', encoding='utf-8') as f:
+                json.dump(default, f, ensure_ascii=False, indent=2)
+            return default
+        with open(USERS_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
 
 
 def _write(users):
-    with open(USERS_FILE, 'w', encoding='utf-8') as f:
-        json.dump(users, f, ensure_ascii=False, indent=2)
+    with _ulock():
+        with open(USERS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(users, f, ensure_ascii=False, indent=2)
 
 
 def verify(username, password):
@@ -64,6 +71,21 @@ def save_api_key(username, api_key):
     if username not in users:
         return False
     users[username]['api_key'] = api_key
+    _write(users)
+    return True
+
+
+def get_anthropic_key(username):
+    """저장된 사용자 Anthropic API 키 반환 (없으면 None)."""
+    return load_users().get(username, {}).get('anthropic_key')
+
+
+def save_anthropic_key(username, key):
+    """사용자 Anthropic API 키를 users.json에 저장."""
+    users = load_users()
+    if username not in users:
+        return False
+    users[username]['anthropic_key'] = key
     _write(users)
     return True
 
@@ -126,17 +148,17 @@ def _save_sessions(data):
 
 def create_session(username, days=30):
     """로그인 토큰 발급 후 반환 (만료된 토큰 자동 정리)"""
-    sessions = _load_sessions()
-    now = datetime.now()
-    # 만료된 세션 제거
-    sessions = {t: s for t, s in sessions.items()
-                if datetime.fromisoformat(s['expires_at']) > now}
-    token = secrets.token_urlsafe(32)
-    sessions[token] = {
-        'username': username,
-        'expires_at': (now + timedelta(days=days)).isoformat(),
-    }
-    _save_sessions(sessions)
+    with _slock():
+        sessions = _load_sessions()
+        now = datetime.now()
+        sessions = {t: s for t, s in sessions.items()
+                    if datetime.fromisoformat(s['expires_at']) > now}
+        token = secrets.token_urlsafe(32)
+        sessions[token] = {
+            'username': username,
+            'expires_at': (now + timedelta(days=days)).isoformat(),
+        }
+        _save_sessions(sessions)
     return token
 
 
@@ -144,7 +166,8 @@ def verify_session(token):
     """유효한 토큰이면 username 반환, 아니면 None"""
     if not token:
         return None
-    sessions = _load_sessions()
+    with _slock():
+        sessions = _load_sessions()
     s = sessions.get(token)
     if not s:
         return None
@@ -157,6 +180,7 @@ def revoke_session(token):
     """토큰 삭제 (로그아웃 시 호출)"""
     if not token:
         return
-    sessions = _load_sessions()
-    sessions.pop(token, None)
-    _save_sessions(sessions)
+    with _slock():
+        sessions = _load_sessions()
+        sessions.pop(token, None)
+        _save_sessions(sessions)

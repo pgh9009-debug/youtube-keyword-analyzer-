@@ -4,6 +4,11 @@ sessions.json
 api_usage.json
 saved_videos.json
 search_history.json
+trending_history.json
+search_cache.json
+trending_cache.json
+channel_discovery_cache.json
+*.lock
 .env
 
 # Python

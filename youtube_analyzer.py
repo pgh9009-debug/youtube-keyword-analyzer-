@@ -25,11 +25,13 @@ class YouTubeAnalyzer:
             return f"{h}:{m:02d}:{s:02d}"
         return f"{m}:{s:02d}"
 
-    def _search_video_ids(self, query, max_results, order='relevance', published_after=None):
+    def _search_video_ids(self, query, max_results, order='relevance', published_after=None, video_duration=None):
         params = dict(q=query, part='id', type='video',
                       maxResults=max_results, order=order)
         if published_after:
             params['publishedAfter'] = published_after
+        if video_duration:
+            params['videoDuration'] = video_duration
         resp = self.youtube.search().list(**params).execute()
         return [item['id']['videoId'] for item in resp.get('items', [])]
 
@@ -57,11 +59,14 @@ class YouTubeAnalyzer:
 
         relevance_ids = self._search_video_ids(keyword, max_results, order=cfg['main'], published_after=after)
         shorts_ids    = self._search_video_ids(f"{keyword} #shorts", 50, order=cfg['shorts'], published_after=after)
+        # 롱폼 최소 20개 보장: medium(4~20분) + long(20분↑) 전용 검색
+        longform_medium_ids = self._search_video_ids(keyword, 25, order=cfg['main'], published_after=after, video_duration='medium')
+        longform_long_ids   = self._search_video_ids(keyword, 25, order=cfg['main'], published_after=after, video_duration='long')
 
-        # 중복 제거: 쇼츠 → 메인 순 우선 배치 (sub 검색 제거로 100 유닛 절감)
+        # 중복 제거: 롱폼 전용 → 메인 → 쇼츠 순 우선 배치
         seen = set()
         video_ids = []
-        for vid in shorts_ids + relevance_ids:
+        for vid in longform_medium_ids + longform_long_ids + relevance_ids + shorts_ids:
             if vid not in seen:
                 seen.add(vid)
                 video_ids.append(vid)
@@ -83,9 +88,14 @@ class YouTubeAnalyzer:
 
         results = []
         for item in videos_resp.get('items', []):
-            snippet = item['snippet']
+            snippet = item.get('snippet')
+            if not snippet:
+                continue
             stats = item.get('statistics', {})
-            duration_sec = self.parse_duration(item['contentDetails']['duration'])
+            content_details = item.get('contentDetails', {})
+            if not content_details.get('duration'):
+                continue
+            duration_sec = self.parse_duration(content_details['duration'])
             view_count = int(stats.get('viewCount', 0))
             like_count = int(stats.get('likeCount', 0))
             comment_count = int(stats.get('commentCount', 0))
@@ -526,7 +536,8 @@ class YouTubeAnalyzer:
             part='statistics,contentDetails', id=','.join(vid_ids)
         ).execute()
 
-        now = datetime.utcnow()
+        from datetime import timezone as _tz
+        now = datetime.now(_tz.utc)
         # 버킷: (views, likes, comments) 튜플 리스트
         buckets = [[] for _ in range(4)]  # 0=1주차(최신) … 3=4주전
 
@@ -541,14 +552,20 @@ class YouTubeAnalyzer:
             cmts  = int(st_.get('commentCount', 0))
             pub   = pub_map.get(vid_id, '')
             try:
-                pub_dt   = datetime.fromisoformat(pub.replace('Z', '+00:00')).replace(tzinfo=None)
+                pub_dt   = datetime.fromisoformat(pub.replace('Z', '+00:00'))
                 days_ago = (now - pub_dt).days
             except Exception:
                 continue
             week_idx = min(days_ago // 7, 3)
             buckets[week_idx].append((views, likes, cmts))
 
-        labels    = ['1주 (최신)', '2주전', '3주전', '4주전']
+        def _week_label(idx):
+            end   = (now - timedelta(days=idx * 7)).date()
+            start = (now - timedelta(days=idx * 7 + 6)).date()
+            suffix = ' (최신)' if idx == 0 else ''
+            return f"{start.month}/{start.day}~{end.month}/{end.day}{suffix}"
+
+        labels    = [_week_label(i) for i in range(4)]
         weeks     = []
         all_views = []
         for label, bucket in zip(labels, buckets):
@@ -577,6 +594,221 @@ class YouTubeAnalyzer:
             'monthly_avg':   monthly_avg,
             'monthly_total': total_all,
             'total_shorts':  len(all_views),
+        }
+
+    def find_similar_channels(self, channel_url, seed=0):
+        """
+        채널 URL → 유사 채널 발굴, 3등급(A/B/C) 분류.
+        키워드는 인기 영상의 태그·제목·설명에서 조회수 가중 추출 (≥2개 영상 등장 필터).
+        seed 0~3: 다른 키워드 조합·정렬 기준으로 재발굴.
+        API cost: ~510 units
+        Returns: {'reference': {...}, 'channels': [...with grade field], 'keywords_used': [...], 'channel_id': str}
+        """
+        channel_id = self._resolve_channel_id(channel_url)
+        if not channel_id:
+            raise ValueError("채널을 찾을 수 없습니다. URL을 확인해주세요.")
+
+        # ── Reference channel info (1 unit) ──────────────────
+        ch_resp = self.youtube.channels().list(
+            part='snippet,statistics,brandingSettings', id=channel_id
+        ).execute()
+        if not ch_resp.get('items'):
+            raise ValueError("채널 정보를 가져올 수 없습니다.")
+        ch_item   = ch_resp['items'][0]
+        sn        = ch_item['snippet']
+        st_       = ch_item.get('statistics', {})
+        ref_subs  = int(st_.get('subscriberCount', 0))
+        ref_vcnt  = max(int(st_.get('videoCount', 1)), 1)
+        ref_total = int(st_.get('viewCount', 0))
+
+        bkw_raw   = ch_item.get('brandingSettings', {}).get('channel', {}).get('keywords', '')
+        brand_kws = [k.strip('"').strip()
+                     for k in re.findall(r'"[^"]+"|\S+', bkw_raw)
+                     if len(k.strip('"').strip()) >= 2][:4]
+
+        reference = {
+            'channel_id':          channel_id,
+            'title':               sn['title'],
+            'description':         sn.get('description', '')[:200],
+            'subscriber_count':    ref_subs,
+            'video_count':         ref_vcnt,
+            'avg_views_per_video': round(ref_total / ref_vcnt),
+            'channel_url':         f"https://www.youtube.com/channel/{channel_id}",
+            'thumbnail':           sn['thumbnails'].get('default', {}).get('url', ''),
+        }
+
+        # ── 세밀한 키워드 추출 (100 + 1 units) ───────────────
+        sv_resp = self.youtube.search().list(
+            part='id', channelId=channel_id,
+            type='video', maxResults=30, order='viewCount'
+        ).execute()
+        vid_ids = [it['id']['videoId'] for it in sv_resp.get('items', [])]
+
+        # 범용 프레이밍 단어 · 미디어 용어 제거
+        _STOP = {
+            'shorts','short','vlog','youtube','youtuber','유튜브','유튜버',
+            'subscribe','구독','좋아요','like','영상','video','clip','일상',
+            'official','live','cover','daily','highlights','하이라이트',
+            '완벽','정리','분석','리뷰','후기','진짜','처음','최신','최초',
+            '방법','이유','모음','정보','꿀팁','비밀','충격','반응','공개',
+            'best','top','how','what','why','just','this','that','with',
+            'from','have','been','will','more','also','about','full',
+        }
+
+        keywords = list(brand_kws)
+
+        if vid_ids:
+            vr = self.youtube.videos().list(
+                part='snippet,statistics', id=','.join(vid_ids[:50])
+            ).execute()
+
+            tag_score:      Counter = Counter()
+            tag_vcnt:       Counter = Counter()
+            word_score:     Counter = Counter()
+            word_vcnt:      Counter = Counter()
+
+            for item in vr.get('items', []):
+                vsn   = item['snippet']
+                views = int(item.get('statistics', {}).get('viewCount', 0))
+                # 조회수 기반 가중치 (10만 기준, 최대 ~2.5)
+                vw = (max(views, 1) / 50_000) ** 0.35
+
+                seen_t: set = set()
+                for tag in vsn.get('tags', []):
+                    tl = tag.lower().strip()
+                    if tl in seen_t or tl in _STOP or not (2 <= len(tl) <= 25):
+                        continue
+                    seen_t.add(tl)
+                    tag_score[tl] += vw
+                    tag_vcnt[tl]  += 1
+
+                seen_w: set = set()
+                for w in re.findall(r'[가-힣]{2,}|[a-zA-Z]{4,}', vsn.get('title', '')):
+                    wl = w.lower()
+                    if wl in seen_w or wl in _STOP:
+                        continue
+                    seen_w.add(wl)
+                    word_score[wl] += vw
+                    word_vcnt[wl]  += 1
+
+            # 태그: ≥2개 영상 등장 = 채널의 실제 주제 신호
+            top_tags  = [t for t, _ in tag_score.most_common(15) if tag_vcnt[t] >= 2][:6]
+            # 제목 단어: ≥3개 영상 등장 = 반복 주제
+            top_words = [w for w, _ in word_score.most_common(15) if word_vcnt[w] >= 3][:5]
+
+            # 채널 설명에서 보조 키워드 (반복 등장 단어만)
+            desc_cnt = Counter(w.lower() for w in re.findall(r'[가-힣]{2,}|[a-zA-Z]{4,}',
+                                                              sn.get('description', ''))
+                                if w.lower() not in _STOP)
+            desc_top = [w for w, c in desc_cnt.most_common(8) if c >= 2][:3]
+
+            seen_kw = set(k.lower() for k in keywords)
+            for kw in top_tags + top_words + desc_top:
+                kl = kw.lower()
+                if kl not in seen_kw:
+                    seen_kw.add(kl)
+                    keywords.append(kw)
+
+        if not keywords:
+            keywords = re.findall(r'[가-힣]{2,}|[a-zA-Z]{4,}', sn['title']) or [sn['title']]
+        keywords = keywords[:8]
+
+        # ── seed별 검색 전략 (400 units) ─────────────────────
+        _SEED_CFG = [
+            ([0, 1, 2, 3], ['relevance', 'date',      'relevance', 'rating'],    None),
+            ([1, 2, 3, 4], ['date',      'relevance',  'viewCount', 'date'],      365),
+            ([0, 3, 4, 5], ['rating',    'viewCount',  'date',      'relevance'], 730),
+            ([2, 4, 5, 6], ['viewCount', 'rating',     'relevance', 'date'],      365),
+        ]
+        kw_indices, orders, days = _SEED_CFG[seed % 4]
+        after = None
+        if days:
+            after = (datetime.utcnow() - timedelta(days=days)).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+        excluded:       set     = {channel_id}
+        ch_count:       Counter = Counter()
+        keywords_used:  list    = []
+
+        for kw_idx, order in zip(kw_indices, orders):
+            kw = keywords[kw_idx % len(keywords)]
+            keywords_used.append(kw)
+            params = dict(part='id,snippet', q=kw, type='video', maxResults=50, order=order)
+            if after:
+                params['publishedAfter'] = after
+            try:
+                sr = self.youtube.search().list(**params).execute()
+                for item in sr.get('items', []):
+                    cid = item['snippet']['channelId']
+                    if cid not in excluded:
+                        ch_count[cid] += 1
+            except Exception:
+                continue
+
+        # ── 채널 상세 조회 + 3등급 분류 (1-3 units) ──────────
+        found_ids = list(ch_count.keys())
+        channel_details: dict = {}
+        for i in range(0, len(found_ids), 50):
+            chunk = found_ids[i:i+50]
+            try:
+                cr = self.youtube.channels().list(
+                    part='snippet,statistics', id=','.join(chunk)
+                ).execute()
+                for item in cr.get('items', []):
+                    st2     = item.get('statistics', {})
+                    subs    = int(st2.get('subscriberCount', 0))
+                    vcnt    = max(int(st2.get('videoCount', 1)), 1)
+                    total_v = int(st2.get('viewCount', 0))
+                    avg_v   = round(total_v / vcnt)
+
+                    if vcnt < 5:  # 영상 5개 미만 제외
+                        continue
+
+                    appearance  = ch_count.get(item['id'], 1)
+                    view_ratio  = avg_v / max(subs, 1)
+                    quality     = min(view_ratio * 3, 5.0)  # 콘텐츠 품질 0~5
+
+                    # ── 3등급 기준 ────────────────────────────
+                    # A: 여러 키워드 검색에서 반복 등장 + 콘텐츠 품질 우수
+                    # B: 2회 이상 등장 OR 1회지만 높은 품질
+                    # C: 1회 등장, 탐색 가능 수준
+                    if appearance >= 3 or (appearance >= 2 and quality >= 1.5):
+                        grade = 'A'
+                    elif appearance >= 2 or (appearance == 1 and quality >= 2.0 and vcnt >= 20):
+                        grade = 'B'
+                    elif vcnt >= 5:
+                        grade = 'C'
+                    else:
+                        continue
+
+                    score = round(appearance * 2.0 + quality, 2)
+
+                    channel_details[item['id']] = {
+                        'channel_id':          item['id'],
+                        'title':               item['snippet']['title'],
+                        'description':         item['snippet'].get('description', '')[:150],
+                        'subscriber_count':    subs,
+                        'video_count':         vcnt,
+                        'avg_views_per_video': avg_v,
+                        'view_ratio_pct':      round(view_ratio * 100, 1),
+                        'thumbnail':           item['snippet']['thumbnails'].get('default', {}).get('url', ''),
+                        'channel_url':         f"https://www.youtube.com/channel/{item['id']}",
+                        'appearance_count':    appearance,
+                        'score':               score,
+                        'grade':               grade,
+                    }
+            except Exception:
+                continue
+
+        # 등급 내에서 score 내림차순 정렬
+        channels_list = sorted(
+            channel_details.values(),
+            key=lambda x: ('ABC'.index(x['grade']), -x['score'])
+        )
+        return {
+            'reference':     reference,
+            'channels':      channels_list,
+            'keywords_used': list(dict.fromkeys(keywords_used)),
+            'channel_id':    channel_id,
         }
 
     def get_channel_analysis(self, videos):
