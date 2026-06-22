@@ -531,7 +531,21 @@ def _extract_vid_id(url):
 
 def _get_transcript(video_id):
     from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound, TranscriptsDisabled
-    api = YouTubeTranscriptApi()
+    import tempfile
+
+    # Streamlit Secrets에 YOUTUBE_COOKIES가 있으면 쿠키 인증으로 IP 차단 우회
+    _cookies_file = None
+    try:
+        _cookie_content = st.secrets.get("YOUTUBE_COOKIES", "")
+        if _cookie_content:
+            tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False)
+            tmp.write(_cookie_content)
+            tmp.flush()
+            _cookies_file = tmp.name
+    except Exception:
+        pass
+
+    api = YouTubeTranscriptApi(cookies=_cookies_file) if _cookies_file else YouTubeTranscriptApi()
 
     def _snippets_to_text(fetched):
         parts = []
