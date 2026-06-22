@@ -1974,22 +1974,9 @@ elif page == "🔥 트렌딩":
         period_opt = st.radio("기간", ["📅 일주일 트렌딩", "🗓️ 한달 인기"],
                               horizontal=True, label_visibility="collapsed")
     with c_btn:
-        load_btn = st.button("🔄 새로고침", type="secondary", use_container_width=True)
+        load_btn = st.button("🔍 키워드 불러오기", type="primary", use_container_width=True)
 
     period_code = 'week' if '일주일' in period_opt else 'month'
-
-    # 기간이 바뀌거나 아직 로드 안 된 경우 자동 로딩
-    # (실패 후 무한재시도 방지: _trending_load_tried 로 시도 여부 추적)
-    if not load_btn:
-        _needs_load = (period_code != st.session_state.get('trending_period', '')
-                       or not st.session_state.trending_keywords)
-        _already_tried = st.session_state.get('_trending_load_tried') == period_code
-        if _needs_load and not _already_tried:
-            st.session_state['_trending_load_tried'] = period_code
-            load_btn = True
-    else:
-        # 수동 새로고침 클릭 시 재시도 허용 (tried 플래그 초기화)
-        st.session_state.pop('_trending_load_tried', None)
 
     if load_btn:
         with st.spinner("트렌딩 키워드 분석 중..."):
@@ -2000,7 +1987,6 @@ elif page == "🔥 트렌딩":
                 st.error(f"API 오류: {_e}")
                 st.stop()
         if _kws:
-            st.session_state.pop('_trending_load_tried', None)  # 다음 기간 변경 시 재로딩 허용
             st.session_state.trending_keywords = _kws
             st.session_state.trending_period   = period_code
             st.session_state.trending_selected = ''
