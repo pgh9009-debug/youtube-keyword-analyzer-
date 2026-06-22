@@ -548,17 +548,23 @@ def _get_transcript(video_id):
     if _cookies_file:
         try:
             import requests as _req
-            from http.cookiejar import MozillaCookieJar as _MCJ
-            _cj = _MCJ(_cookies_file)
-            _cj.load(ignore_discard=True, ignore_expires=True)
             _session = _req.Session()
-            _session.cookies = _cj
-            api = YouTubeTranscriptApi(http_client=_session)
-        except TypeError:
+            with open(_cookies_file, 'r') as _cf:
+                for _line in _cf:
+                    _line = _line.strip()
+                    if not _line or _line.startswith('#'):
+                        continue
+                    # 탭 또는 공백 모두 처리
+                    _parts = _line.split('\t') if '\t' in _line else _line.split()
+                    if len(_parts) >= 7:
+                        _domain, _, _path, _secure, _, _name, _value = _parts[:7]
+                        _session.cookies.set(_name, _value, domain=_domain.lstrip('.'), path=_path)
             try:
-                api = YouTubeTranscriptApi(cookies=_cookies_file)
+                api = YouTubeTranscriptApi(http_client=_session)
             except TypeError:
                 api = YouTubeTranscriptApi()
+        except Exception:
+            api = YouTubeTranscriptApi()
     else:
         api = YouTubeTranscriptApi()
 
