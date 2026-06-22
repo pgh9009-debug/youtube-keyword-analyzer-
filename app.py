@@ -2208,12 +2208,8 @@ elif page == "📺 쇼츠 분석기":
     <div style="font-size:1.6rem;font-weight:800;color:#fff;letter-spacing:-.5px;margin-bottom:4px">
         📺 쇼츠 레퍼런스 분석기</div>
     <div style="font-size:.82rem;color:#444;margin-bottom:20px">
-        잘된 쇼츠 링크를 넣으면 대본·주제·잘된 이유를 분석하고, 이를 레퍼런스로 콘텐츠 방향 5가지를 추천합니다
+        분석할 쇼츠의 대본을 붙여넣으면 주제·잘된 이유·콘텐츠 방향 5가지를 추천합니다
     </div>''', unsafe_allow_html=True)
-
-    if not api_key:
-        st.error("사이드바에서 YouTube API 키를 먼저 입력해주세요.")
-        st.stop()
 
     # ── Anthropic API 키 (사이드바에서 관리) ─────────────────
     _ant_key = st.session_state.get('anthropic_key', '')
@@ -2221,51 +2217,55 @@ elif page == "📺 쇼츠 분석기":
         st.error("사이드바에서 Anthropic API 키를 먼저 입력해주세요.")
         st.stop()
 
-    # ── 쇼츠 URL 입력 ────────────────────────────────────
+    # ── 입력 폼 ───────────────────────────────────────────
     with st.form("shorts_ref_form"):
         _sh_url_input = st.text_input(
-            "쇼츠 링크",
+            "쇼츠 링크 (선택 — 영상 제목·조회수 자동 입력용)",
             placeholder="https://youtube.com/shorts/xxxxx  또는  youtu.be/xxxxx",
+        )
+        _sh_script_input = st.text_area(
+            "대본 붙여넣기 ✳️",
+            placeholder="분석할 쇼츠의 대본(자막)을 여기에 붙여넣으세요.",
+            height=180,
         )
         _sh_submit = st.form_submit_button("🔍 분석 시작", type="primary", use_container_width=True)
 
-    if _sh_submit and _sh_url_input.strip():
-        _vid_id = _extract_vid_id(_sh_url_input.strip())
-        if not _vid_id:
-            st.error("유효한 YouTube URL이 아닙니다.")
+    if _sh_submit:
+        _script_text = _sh_script_input.strip()
+        if not _script_text:
+            st.error("대본을 입력해주세요.")
             st.stop()
 
-        with st.spinner("자막 추출 및 AI 분석 중... (10~20초)"):
-            try:
-                _transcript_text = _get_transcript(_vid_id)
-            except Exception as _te:
-                st.error(f"자막을 불러올 수 없습니다: {_te}")
-                st.stop()
+        _vid_id = _extract_vid_id(_sh_url_input.strip()) if _sh_url_input.strip() else None
+
+        with st.spinner("AI 분석 중... (10~20초)"):
+            # 영상 정보: URL 있으면 API로, 없으면 기본값
+            if _vid_id and api_key:
+                try:
+                    _yt_tmp = YouTubeAnalyzer(api_key)
+                    _vr = _yt_tmp.youtube.videos().list(
+                        part='snippet,statistics,contentDetails', id=_vid_id
+                    ).execute()
+                    if _vr.get('items'):
+                        _vi_item = _vr['items'][0]
+                        _sa_vinfo = {
+                            'title':     _vi_item['snippet']['title'],
+                            'channel':   _vi_item['snippet']['channelTitle'],
+                            'views':     int(_vi_item.get('statistics', {}).get('viewCount', 0)),
+                            'likes':     int(_vi_item.get('statistics', {}).get('likeCount', 0)),
+                            'comments':  int(_vi_item.get('statistics', {}).get('commentCount', 0)),
+                            'duration':  _yt_tmp.parse_duration(_vi_item['contentDetails']['duration']),
+                            'thumbnail': _vi_item['snippet']['thumbnails'].get('high', {}).get('url', ''),
+                        }
+                    else:
+                        _sa_vinfo = {'title': '(제목 없음)', 'channel': '', 'views': 0, 'likes': 0, 'comments': 0, 'duration': 0, 'thumbnail': ''}
+                except Exception:
+                    _sa_vinfo = {'title': '(제목 없음)', 'channel': '', 'views': 0, 'likes': 0, 'comments': 0, 'duration': 0, 'thumbnail': ''}
+            else:
+                _sa_vinfo = {'title': '(제목 없음)', 'channel': '', 'views': 0, 'likes': 0, 'comments': 0, 'duration': 0, 'thumbnail': ''}
 
             try:
-                _yt_tmp = YouTubeAnalyzer(api_key)
-                _vr = _yt_tmp.youtube.videos().list(
-                    part='snippet,statistics,contentDetails', id=_vid_id
-                ).execute()
-                if not _vr.get('items'):
-                    st.error("영상을 찾을 수 없습니다.")
-                    st.stop()
-                _vi_item = _vr['items'][0]
-                _sa_vinfo = {
-                    'title':     _vi_item['snippet']['title'],
-                    'channel':   _vi_item['snippet']['channelTitle'],
-                    'views':     int(_vi_item.get('statistics', {}).get('viewCount', 0)),
-                    'likes':     int(_vi_item.get('statistics', {}).get('likeCount', 0)),
-                    'comments':  int(_vi_item.get('statistics', {}).get('commentCount', 0)),
-                    'duration':  _yt_tmp.parse_duration(_vi_item['contentDetails']['duration']),
-                    'thumbnail': _vi_item['snippet']['thumbnails'].get('high', {}).get('url', ''),
-                }
-            except Exception as _ve:
-                st.error(f"영상 정보 오류: {_ve}")
-                st.stop()
-
-            try:
-                _sa_result = _claude_analyze_shorts(_ant_key, _sa_vinfo, _transcript_text, seed=0)
+                _sa_result = _claude_analyze_shorts(_ant_key, _sa_vinfo, _script_text, seed=0)
                 if not _sa_result:
                     st.error("AI 분석 응답 파싱 실패. 다시 시도해주세요.")
                     st.stop()
@@ -2275,7 +2275,7 @@ elif page == "📺 쇼츠 분석기":
 
         st.session_state.sa_result        = _sa_result
         st.session_state.sa_vinfo         = _sa_vinfo
-        st.session_state.sa_transcript    = _transcript_text
+        st.session_state.sa_transcript    = _script_text
         st.session_state.sa_url           = _sh_url_input.strip()
         st.session_state.sa_seed          = 0
         st.session_state.sa_refresh_count = 0
