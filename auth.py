@@ -5,8 +5,10 @@ import secrets
 from datetime import datetime, timedelta
 from filelock import FileLock
 
-USERS_FILE    = os.path.join(os.path.dirname(__file__), 'users.json')
-SESSIONS_FILE = os.path.join(os.path.dirname(__file__), 'sessions.json')
+_DATA_DIR     = os.environ.get('DATA_DIR', os.path.dirname(__file__))
+os.makedirs(_DATA_DIR, exist_ok=True)
+USERS_FILE    = os.path.join(_DATA_DIR, 'users.json')
+SESSIONS_FILE = os.path.join(_DATA_DIR, 'sessions.json')
 
 def _ulock(): return FileLock(USERS_FILE    + '.lock', timeout=5)
 def _slock(): return FileLock(SESSIONS_FILE + '.lock', timeout=5)

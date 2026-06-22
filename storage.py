@@ -4,12 +4,15 @@ import logging
 from datetime import datetime, timedelta
 from filelock import FileLock
 
-SAVED_FILE     = os.path.join(os.path.dirname(__file__), 'saved_videos.json')
-API_USAGE_FILE = os.path.join(os.path.dirname(__file__), 'api_usage.json')
-HISTORY_FILE   = os.path.join(os.path.dirname(__file__), 'search_history.json')
-TRENDING_HISTORY_FILE = os.path.join(os.path.dirname(__file__), 'trending_history.json')
-SEARCH_CACHE_FILE   = os.path.join(os.path.dirname(__file__), 'search_cache.json')
-TRENDING_CACHE_FILE = os.path.join(os.path.dirname(__file__), 'trending_cache.json')
+_DATA_DIR = os.environ.get('DATA_DIR', os.path.dirname(__file__))
+os.makedirs(_DATA_DIR, exist_ok=True)
+
+SAVED_FILE     = os.path.join(_DATA_DIR, 'saved_videos.json')
+API_USAGE_FILE = os.path.join(_DATA_DIR, 'api_usage.json')
+HISTORY_FILE   = os.path.join(_DATA_DIR, 'search_history.json')
+TRENDING_HISTORY_FILE = os.path.join(_DATA_DIR, 'trending_history.json')
+SEARCH_CACHE_FILE   = os.path.join(_DATA_DIR, 'search_cache.json')
+TRENDING_CACHE_FILE = os.path.join(_DATA_DIR, 'trending_cache.json')
 _CACHE_MAX_ENTRIES = 80
 
 def _lock(path):
@@ -254,7 +257,7 @@ def set_trending_cache(keyword: str, seed: int, data):
 
 
 # ── 채널 발굴 캐시 ───────────────────────────────────────────
-CHANNEL_DISCOVERY_CACHE_FILE = os.path.join(os.path.dirname(__file__), 'channel_discovery_cache.json')
+CHANNEL_DISCOVERY_CACHE_FILE = os.path.join(_DATA_DIR, 'channel_discovery_cache.json')
 
 def get_discovery_cache(channel_id: str, seed: int, ttl_hours: int = 2):
     with _lock(CHANNEL_DISCOVERY_CACHE_FILE):
