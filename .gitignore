@@ -28,3 +28,6 @@ build/
 # IDE
 .vscode/
 .idea/
+
+# Streamlit secrets (로컬 전용)
+.streamlit/secrets.toml

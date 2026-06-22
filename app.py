@@ -343,19 +343,24 @@ if 'sa_seed'                 not in st.session_state:
 if 'sa_refresh_count'        not in st.session_state:
     st.session_state.sa_refresh_count        = 0
 
-# 사용자별 API 키 로드 (users.json → 없으면 env fallback, 관리자 전용)
+def _get_secret(key):
+    """st.secrets → 환경변수 순으로 값 반환."""
+    try:
+        val = st.secrets.get(key)
+        if val:
+            return val
+    except Exception:
+        pass
+    return os.getenv(key, "")
+
+# 사용자별 API 키 로드 (users.json → secrets/env fallback)
 if 'api_key' not in st.session_state:
     _stored_key = auth.get_api_key(username)
-    if _stored_key:
-        st.session_state.api_key = _stored_key
-    elif username == 'admin':
-        st.session_state.api_key = os.getenv("YOUTUBE_API_KEY", "")
-    else:
-        st.session_state.api_key = ''
+    st.session_state.api_key = _stored_key or _get_secret("YOUTUBE_API_KEY")
 
 if 'anthropic_key' not in st.session_state:
     _stored_ant = auth.get_anthropic_key(username)
-    st.session_state.anthropic_key = _stored_ant or os.getenv("ANTHROPIC_API_KEY", "")
+    st.session_state.anthropic_key = _stored_ant or _get_secret("ANTHROPIC_API_KEY")
 
 # 세션 시작 시 파일에서 오늘 API 사용량 복원 (날짜 바뀌면 자동 0)
 if 'api_units_used' not in st.session_state:

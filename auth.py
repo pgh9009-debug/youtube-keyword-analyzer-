@@ -18,10 +18,22 @@ def _hash(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
 
+def _seed_from_secrets():
+    """Streamlit secrets에 INITIAL_USERS가 있으면 파싱해서 반환, 없으면 기본 admin 반환."""
+    try:
+        import streamlit as st
+        raw = st.secrets.get("INITIAL_USERS")
+        if raw:
+            return json.loads(raw)
+    except Exception:
+        pass
+    return {"admin": {"password": _hash("admin123"), "name": "관리자"}}
+
+
 def load_users():
     with _ulock():
         if not os.path.exists(USERS_FILE):
-            default = {"admin": {"password": _hash("admin123"), "name": "관리자"}}
+            default = _seed_from_secrets()
             with open(USERS_FILE, 'w', encoding='utf-8') as f:
                 json.dump(default, f, ensure_ascii=False, indent=2)
             return default
