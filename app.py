@@ -2220,6 +2220,7 @@ elif page == "📺 쇼츠 분석기":
     if not _ant_key:
         st.error("사이드바에서 Anthropic API 키를 먼저 입력해주세요.")
         st.stop()
+    st.caption(f"🔑 Anthropic 키 확인: `{_ant_key[:8]}...{_ant_key[-4:]}` ({len(_ant_key)}자)")
 
     # ── 입력 폼 ───────────────────────────────────────────
     with st.form("shorts_ref_form"):
