@@ -289,9 +289,17 @@ def get_user_seed_offset(uname: str) -> int:
 if 'run_keyword' not in st.session_state:
     st.session_state.run_keyword = ''
 if 'refresh_seed' not in st.session_state:
-    st.session_state.refresh_seed  = 0    # 0=기본, 1=최신인기, 2=숨겨진발굴, 3=급상승
+    st.session_state.refresh_seed  = 0
 if 'refresh_count' not in st.session_state:
-    st.session_state.refresh_count = 0    # 현재 키워드에서 사용한 새로고침 횟수 (최대 3)
+    st.session_state.refresh_count = 0
+if 'longform_refresh_seed' not in st.session_state:
+    st.session_state.longform_refresh_seed  = 0
+if 'longform_refresh_count' not in st.session_state:
+    st.session_state.longform_refresh_count = 0
+if 'channel_tab_refresh_seed' not in st.session_state:
+    st.session_state.channel_tab_refresh_seed  = 0
+if 'channel_tab_refresh_count' not in st.session_state:
+    st.session_state.channel_tab_refresh_count = 0
 if 'history_view' not in st.session_state:
     # 새로고침 후에도 오늘 가장 최근 검색 결과를 자동 복원
     _today_hist = storage.get_search_history(username)
@@ -521,8 +529,12 @@ with st.sidebar:
 if run:
     st.session_state.run_keyword   = keyword_input
     st.session_state.history_view  = None
-    st.session_state.refresh_seed  = get_user_seed_offset(username)   # 사용자별 고유 시작 시드
-    st.session_state.refresh_count = 0   # 새 키워드마다 새로고침 횟수 리셋
+    st.session_state.refresh_seed  = get_user_seed_offset(username)
+    st.session_state.refresh_count = 0
+    st.session_state.longform_refresh_seed  = get_user_seed_offset(username)
+    st.session_state.longform_refresh_count = 0
+    st.session_state.channel_tab_refresh_seed  = get_user_seed_offset(username)
+    st.session_state.channel_tab_refresh_count = 0
 
 # ══════════════════════════════════════════════════════════
 # 헬퍼 함수
@@ -1303,12 +1315,13 @@ def render_full_analysis(results, channels, related_kw, angle_kw, title_patterns
     # ════ 롱폼 ════
     with tabs[1]:
         st.markdown("### 🎬 롱폼")
-        _rc_lf = st.session_state.get('refresh_count', 0)
-        _cs_lf = st.session_state.get('refresh_seed', 0)
+        _rc_lf = st.session_state.get('longform_refresh_count', 0)
+        _cs_lf = st.session_state.get('longform_refresh_seed', 0)
         if _rc_lf < 3:
             if st.button(f"🔄 알고리즘 초기화 ({_rc_lf+1}/3)", key="refresh_longform"):
+                st.session_state.longform_refresh_seed  = (_cs_lf + 1) % 4
+                st.session_state.longform_refresh_count = _rc_lf + 1
                 st.session_state.refresh_seed = (_cs_lf + 1) % 4
-                st.session_state.refresh_count = _rc_lf + 1
                 st.session_state.run_keyword = keyword
                 st.session_state.history_view = None
                 st.rerun()
@@ -1609,12 +1622,13 @@ def render_full_analysis(results, channels, related_kw, angle_kw, title_patterns
     # ════ 채널 ════
     with tabs[6]:
         st.markdown("### 📡 채널 분석")
-        _rc_ch = st.session_state.get('refresh_count', 0)
-        _cs_ch = st.session_state.get('refresh_seed', 0)
+        _rc_ch = st.session_state.get('channel_tab_refresh_count', 0)
+        _cs_ch = st.session_state.get('channel_tab_refresh_seed', 0)
         if _rc_ch < 3:
             if st.button(f"🔄 알고리즘 초기화 ({_rc_ch+1}/3)", key="refresh_channel"):
+                st.session_state.channel_tab_refresh_seed  = (_cs_ch + 1) % 4
+                st.session_state.channel_tab_refresh_count = _rc_ch + 1
                 st.session_state.refresh_seed = (_cs_ch + 1) % 4
-                st.session_state.refresh_count = _rc_ch + 1
                 st.session_state.run_keyword = keyword
                 st.session_state.history_view = None
                 st.rerun()
