@@ -539,13 +539,16 @@ def _get_transcript(video_id):
             parts.append(s.text if hasattr(s, 'text') else s['text'])
         return ' '.join(parts)
 
+    _last_err = None
+
     # 1. 한국어 우선, 없으면 영어
     for langs in [['ko'], ['en'], ['ko', 'en', 'ja', 'zh-Hans', 'zh-Hant']]:
         try:
             return _snippets_to_text(api.fetch(video_id, languages=langs))
         except NoTranscriptFound:
             continue
-        except Exception:
+        except Exception as e:
+            _last_err = e
             continue
 
     # 2. 사용 가능한 첫 번째 자막 (어떤 언어든)
@@ -558,10 +561,11 @@ def _get_transcript(video_id):
             return _snippets_to_text(fetched)
     except TranscriptsDisabled:
         raise ValueError("이 영상은 자막이 비활성화되어 있습니다.")
-    except Exception:
-        pass
+    except Exception as e:
+        _last_err = e
 
-    raise ValueError("이 영상에는 사용 가능한 자막이 없습니다.")
+    detail = f" ({type(_last_err).__name__}: {_last_err})" if _last_err else ""
+    raise ValueError(f"이 영상에는 사용 가능한 자막이 없습니다.{detail}")
 
 
 def _extract_json_obj(text):
