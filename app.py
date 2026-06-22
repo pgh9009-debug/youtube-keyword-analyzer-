@@ -2006,6 +2006,17 @@ elif page == "🔥 트렌딩":
     st.markdown("### 🎯 내 키워드 연관 검색어 분석")
     st.caption("영상으로 만들 키워드를 입력하면 검색량 순 연관어와 콘텐츠 추천을 바로 보여줍니다. (~101 유닛)")
 
+    # 키워드 분析 후 트렌딩 전환 시 자동 연관검색어 트리거
+    # history_view의 키워드와 마지막 자동 트리거 키워드가 다를 때만 1회 실행
+    if '_ck_search_trigger' not in st.session_state:
+        _hv_auto = st.session_state.get('history_view')
+        if _hv_auto and _hv_auto.get('keyword'):
+            _hv_kw_auto = _hv_auto['keyword']
+            _last_auto   = st.session_state.get('_trending_auto_kw', '')
+            if _hv_kw_auto != _last_auto:
+                st.session_state['_ck_search_trigger'] = _hv_kw_auto
+                st.session_state['_trending_auto_kw']  = _hv_kw_auto
+
     # 연관검색어 버튼 클릭 시 세팅된 트리거 키워드 처리
     _ck_trigger = st.session_state.get('_ck_search_trigger', '')
     if '_ck_search_trigger' in st.session_state:
@@ -2234,8 +2245,6 @@ elif page == "📺 쇼츠 분석기":
     if not _ant_key:
         st.error("사이드바에서 Anthropic API 키를 먼저 입력해주세요.")
         st.stop()
-    st.caption(f"🔑 Anthropic 키 확인: `{_ant_key[:8]}...{_ant_key[-4:]}` ({len(_ant_key)}자)")
-
     # ── 입력 폼 ───────────────────────────────────────────
     with st.form("shorts_ref_form"):
         _sh_url_input = st.text_input(
