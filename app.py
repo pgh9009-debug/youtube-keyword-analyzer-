@@ -533,53 +533,34 @@ def _get_transcript(video_id):
     from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound, TranscriptsDisabled
     import tempfile
 
-    # Streamlit Secrets에 YOUTUBE_COOKIES가 있으면 쿠키 인증으로 IP 차단 우회
+    # Streamlit Secrets에 YOUTUBE_COOKIES가 있으면 쿠키 파일로 IP 차단 우회
     _cookies_file = None
     try:
         _cookie_content = st.secrets.get("YOUTUBE_COOKIES", "")
         if _cookie_content:
-            tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False)
-            tmp.write(_cookie_content)
+            tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8')
+            # 공백 구분자를 탭으로 정규화 (Netscape 포맷 요구사항)
+            for line in _cookie_content.splitlines():
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    tmp.write(line + '\n')
+                    continue
+                parts = line.split('\t') if '\t' in line else line.split()
+                if len(parts) >= 7:
+                    tmp.write('\t'.join(parts[:7]) + '\n')
             tmp.flush()
             _cookies_file = tmp.name
     except Exception:
         pass
 
-    if _cookies_file:
-        try:
-            import requests as _req
-            _session = _req.Session()
-            with open(_cookies_file, 'r') as _cf:
-                for _line in _cf:
-                    _line = _line.strip()
-                    if not _line or _line.startswith('#'):
-                        continue
-                    # 탭 또는 공백 모두 처리
-                    _parts = _line.split('\t') if '\t' in _line else _line.split()
-                    if len(_parts) >= 7:
-                        _domain, _, _path, _secure, _, _name, _value = _parts[:7]
-                        _session.cookies.set(_name, _value, domain=_domain.lstrip('.'), path=_path)
-            try:
-                api = YouTubeTranscriptApi(http_client=_session)
-            except TypeError:
-                api = YouTubeTranscriptApi()
-        except Exception:
-            api = YouTubeTranscriptApi()
-    else:
-        api = YouTubeTranscriptApi()
-
-    def _snippets_to_text(fetched):
-        parts = []
-        for s in fetched:
-            parts.append(s.text if hasattr(s, 'text') else s['text'])
-        return ' '.join(parts)
-
+    _kwargs = {'cookies': _cookies_file} if _cookies_file else {}
     _last_err = None
 
     # 1. 한국어 우선, 없으면 영어
     for langs in [['ko'], ['en'], ['ko', 'en', 'ja', 'zh-Hans', 'zh-Hant']]:
         try:
-            return _snippets_to_text(api.fetch(video_id, languages=langs))
+            data = YouTubeTranscriptApi.get_transcript(video_id, languages=langs, **_kwargs)
+            return ' '.join(item['text'] for item in data)
         except NoTranscriptFound:
             continue
         except Exception as e:
@@ -588,12 +569,10 @@ def _get_transcript(video_id):
 
     # 2. 사용 가능한 첫 번째 자막 (어떤 언어든)
     try:
-        tl = api.list(video_id)
-        all_transcripts = list(tl)
-        if all_transcripts:
-            first = all_transcripts[0]
-            fetched = api.fetch(video_id, languages=[first.language_code])
-            return _snippets_to_text(fetched)
+        tl = YouTubeTranscriptApi.list_transcripts(video_id, **_kwargs)
+        first = next(iter(tl))
+        data = first.fetch()
+        return ' '.join(item['text'] for item in data)
     except TranscriptsDisabled:
         raise ValueError("이 영상은 자막이 비활성화되어 있습니다.")
     except Exception as e:
