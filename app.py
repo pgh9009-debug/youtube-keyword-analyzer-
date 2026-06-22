@@ -353,14 +353,17 @@ def _get_secret(key):
         pass
     return os.getenv(key, "")
 
-# 사용자별 API 키 로드 (users.json → secrets/env fallback)
+# 사용자별 API 키 로드 (users.json → 브라우저쿠키 → secrets/env fallback)
+_all_cookies_keys = _cookies.getAll() or {}
 if 'api_key' not in st.session_state:
     _stored_key = auth.get_api_key(username)
-    st.session_state.api_key = _stored_key or _get_secret("YOUTUBE_API_KEY")
+    _cookie_yt  = _all_cookies_keys.get(f'yt_apikey_{username}', '')
+    st.session_state.api_key = _stored_key or _cookie_yt or _get_secret("YOUTUBE_API_KEY")
 
 if 'anthropic_key' not in st.session_state:
-    _stored_ant = auth.get_anthropic_key(username)
-    st.session_state.anthropic_key = _stored_ant or _get_secret("ANTHROPIC_API_KEY")
+    _stored_ant  = auth.get_anthropic_key(username)
+    _cookie_ant  = _all_cookies_keys.get(f'ant_apikey_{username}', '')
+    st.session_state.anthropic_key = _stored_ant or _cookie_ant or _get_secret("ANTHROPIC_API_KEY")
 
 # 세션 시작 시 파일에서 오늘 API 사용량 복원 (날짜 바뀌면 자동 0)
 if 'api_units_used' not in st.session_state:
@@ -506,6 +509,7 @@ with st.sidebar:
         if _ant_key_saved and _ant_sidebar_input.strip():
             auth.save_anthropic_key(username, _ant_sidebar_input.strip())
             st.session_state.anthropic_key = _ant_sidebar_input.strip()
+            _cookies.set(f'ant_apikey_{username}', _ant_sidebar_input.strip(), max_age=90 * 24 * 3600)
             st.success("저장됐습니다.")
     else:
         api_key = st.session_state.get('api_key', '')
