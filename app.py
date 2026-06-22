@@ -1974,9 +1974,22 @@ elif page == "🔥 트렌딩":
         period_opt = st.radio("기간", ["📅 일주일 트렌딩", "🗓️ 한달 인기"],
                               horizontal=True, label_visibility="collapsed")
     with c_btn:
-        load_btn = st.button("🔍 키워드 불러오기", type="primary", use_container_width=True)
+        load_btn = st.button("🔄 새로고침", type="secondary", use_container_width=True)
 
     period_code = 'week' if '일주일' in period_opt else 'month'
+
+    # 기간이 바뀌거나 아직 로드 안 된 경우 자동 로딩
+    # (실패 후 무한재시도 방지: _trending_load_tried 로 시도 여부 추적)
+    if not load_btn:
+        _needs_load = (period_code != st.session_state.get('trending_period', '')
+                       or not st.session_state.trending_keywords)
+        _already_tried = st.session_state.get('_trending_load_tried') == period_code
+        if _needs_load and not _already_tried:
+            st.session_state['_trending_load_tried'] = period_code
+            load_btn = True
+    else:
+        # 수동 새로고침 클릭 시 재시도 허용 (tried 플래그 초기화)
+        st.session_state.pop('_trending_load_tried', None)
 
     if load_btn:
         with st.spinner("트렌딩 키워드 분석 중..."):
@@ -1987,6 +2000,7 @@ elif page == "🔥 트렌딩":
                 st.error(f"API 오류: {_e}")
                 st.stop()
         if _kws:
+            st.session_state.pop('_trending_load_tried', None)  # 다음 기간 변경 시 재로딩 허용
             st.session_state.trending_keywords = _kws
             st.session_state.trending_period   = period_code
             st.session_state.trending_selected = ''
@@ -2005,17 +2019,6 @@ elif page == "🔥 트렌딩":
     st.divider()
     st.markdown("### 🎯 내 키워드 연관 검색어 분석")
     st.caption("영상으로 만들 키워드를 입력하면 검색량 순 연관어와 콘텐츠 추천을 바로 보여줍니다. (~101 유닛)")
-
-    # 키워드 분析 후 트렌딩 전환 시 자동 연관검색어 트리거
-    # history_view의 키워드와 마지막 자동 트리거 키워드가 다를 때만 1회 실행
-    if '_ck_search_trigger' not in st.session_state:
-        _hv_auto = st.session_state.get('history_view')
-        if _hv_auto and _hv_auto.get('keyword'):
-            _hv_kw_auto = _hv_auto['keyword']
-            _last_auto   = st.session_state.get('_trending_auto_kw', '')
-            if _hv_kw_auto != _last_auto:
-                st.session_state['_ck_search_trigger'] = _hv_kw_auto
-                st.session_state['_trending_auto_kw']  = _hv_kw_auto
 
     # 연관검색어 버튼 클릭 시 세팅된 트리거 키워드 처리
     _ck_trigger = st.session_state.get('_ck_search_trigger', '')
