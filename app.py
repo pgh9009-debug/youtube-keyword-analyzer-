@@ -376,8 +376,11 @@ if 'anthropic_key' not in st.session_state:
 # 세션 시작 시 파일에서 오늘 API 사용량 복원 (날짜 바뀌면 자동 0)
 if 'api_units_used' not in st.session_state:
     st.session_state.api_units_used = storage.get_api_usage(username)
+if 'sq_used' not in st.session_state:
+    st.session_state.sq_used = storage.get_sq_usage(username)
 
-_api_bar = _api_text = None  # 사이드바 API 사용량 플레이스홀더
+_api_bar = _api_text = _sq_text = None  # 사이드바 API 사용량 플레이스홀더
+_sq_lim = 100
 
 # ── 사이드바 ──────────────────────────────────────────────
 with st.sidebar:
@@ -409,10 +412,14 @@ with st.sidebar:
     st.markdown("**📊 오늘 내 API 사용량**")
     _api_bar  = st.empty()
     _api_text = st.empty()
-    st.caption("검색 1회 ≈ 202 유닛 · 채널 발굴 ≈ 510 유닛 · 캐시 적중 시 0 유닛")
-    _u = st.session_state.get('api_units_used', 0)
+    _sq_text  = st.empty()
+    st.caption("검색 1회 ≈ 202 유닛 · 4 Search Queries · 채널 발굴 ≈ 510 유닛")
+    _u  = st.session_state.get('api_units_used', 0)
+    _sq = st.session_state.get('sq_used', 0)
     _api_bar.progress(min(int(_u / 10_000 * 100), 100))
     _api_text.caption(f"{_u:,} / 10,000 유닛 사용 ({10_000 - _u:,} 남음)")
+    _sq_lim = 100
+    _sq_text.caption(f"🔎 Search Queries {_sq} / {_sq_lim}회 ({max(_sq_lim - _sq, 0)} 남음)")
     st.divider()
 
     if page == "🔍 키워드 분석":
@@ -770,6 +777,10 @@ def run_analysis(api_key, keyword, max_results, refresh_seed=0):
         v['subscriber_count'] = ch.get('subscriber_count', 1)
     # API 유닛 누적: search×2(200) + videos.list(1~2) + channels(1) ≈ 202
     st.session_state.api_units_used = storage.add_api_usage(202, st.session_state.username)
+    st.session_state.sq_used = storage.add_sq_usage(analyzer._sq, st.session_state.username)
+    if _sq_text is not None:
+        _sq = st.session_state.sq_used
+        _sq_text.caption(f"🔎 Search Queries {_sq} / {_sq_lim}회 ({max(_sq_lim - _sq, 0)} 남음)")
 
     # 결과 캐시 저장
     storage.set_search_cache(keyword, refresh_seed, {
@@ -1757,6 +1768,7 @@ def render_full_analysis(results, channels, related_kw, angle_kw, title_patterns
                         _wk_analyzer = _WKA(_wk_api)
                         _wk_result   = _wk_analyzer.analyze_channel_shorts(_wk_url.strip())
                         storage.add_api_usage(102, st.session_state.username)
+                        st.session_state.sq_used = storage.add_sq_usage(_wk_analyzer._sq, st.session_state.username)
                         st.session_state['_wk_result'] = _wk_result
                     except Exception as _e:
                         st.error(f"API 오류: {_e}")
@@ -1993,10 +2005,13 @@ elif page == "🔥 트렌딩":
             st.session_state.trending_analysis = None
             _units = 1 if period_code == 'week' else 106
             st.session_state.api_units_used = storage.add_api_usage(_units, username)
+            st.session_state.sq_used = storage.add_sq_usage(_analyzer._sq, username)
             if _api_bar:
                 _u = st.session_state.api_units_used
                 _api_bar.progress(min(int(_u / 10_000 * 100), 100))
                 _api_text.caption(f"{_u:,} / 10,000 유닛 사용 ({10_000 - _u:,} 남음)")
+                _sq = st.session_state.sq_used
+                _sq_text.caption(f"🔎 Search Queries {_sq} / {_sq_lim}회 ({max(_sq_lim - _sq, 0)} 남음)")
             st.rerun()
         else:
             st.warning("트렌딩 키워드를 불러오지 못했습니다. API 키와 할당량을 확인해주세요.")
@@ -2049,10 +2064,13 @@ elif page == "🔥 트렌딩":
                     st.session_state.custom_kw_results = (_ck_rel, _ck_ang)
                     storage.set_trending_cache(_ck_kw, -1, [_ck_rel, _ck_ang])
                     st.session_state.api_units_used = storage.add_api_usage(101, username)
+                    st.session_state.sq_used = storage.add_sq_usage(_ck_analyzer._sq, username)
                     if _api_bar:
                         _u = st.session_state.api_units_used
                         _api_bar.progress(min(int(_u / 10_000 * 100), 100))
                         _api_text.caption(f"{_u:,} / 10,000 유닛 사용 ({10_000 - _u:,} 남음)")
+                        _sq = st.session_state.sq_used
+                        _sq_text.caption(f"🔎 Search Queries {_sq} / {_sq_lim}회 ({max(_sq_lim - _sq, 0)} 남음)")
                     storage.add_trending_history(username, _ck_kw, {
                         'source': 'custom',
                         'related_kw': _ck_rel,
@@ -2157,10 +2175,13 @@ elif page == "🔥 트렌딩":
             st.session_state.trending_analysis = (_rel, _ang, _vids)
             storage.set_trending_cache(selected, _tr_seed, [_rel, _ang, _vids])
             st.session_state.api_units_used = storage.add_api_usage(101, username)
+            st.session_state.sq_used = storage.add_sq_usage(_analyzer._sq, username)
             if _api_bar:
                 _u = st.session_state.api_units_used
                 _api_bar.progress(min(int(_u / 10_000 * 100), 100))
                 _api_text.caption(f"{_u:,} / 10,000 유닛 사용 ({10_000 - _u:,} 남음)")
+                _sq = st.session_state.sq_used
+                _sq_text.caption(f"🔎 Search Queries {_sq} / {_sq_lim}회 ({max(_sq_lim - _sq, 0)} 남음)")
 
         # 히스토리 저장 후 rerun → 사이드바 검색 목록 즉시 반영
         _rel_h, _ang_h, _vids_h = st.session_state.trending_analysis
@@ -2426,6 +2447,7 @@ elif page == "🔭 채널 발굴":
                 st.session_state.discovery_channel_id = _disc_fetched['channel_id']
                 storage.set_discovery_cache(_disc_fetched['channel_id'], _disc_seed, _disc_fetched)
                 st.session_state.api_units_used = storage.add_api_usage(510, username)
+                st.session_state.sq_used = storage.add_sq_usage(_disc_analyzer._sq, username)
             except Exception as _disc_e:
                 st.error(f"채널 발굴 오류: {_disc_e}")
                 st.stop()

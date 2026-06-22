@@ -126,6 +126,26 @@ def add_api_usage(units, username):
     return usage[username]
 
 
+def get_sq_usage(username):
+    """오늘 사용한 Search Queries 횟수 반환."""
+    with _lock(API_USAGE_FILE):
+        _, usage = _load_usage_file()
+    return usage.get(f'__sq__{username}', 0)
+
+
+def add_sq_usage(count, username):
+    """Search Queries 횟수 누적 저장 후 오늘 총 횟수 반환."""
+    if count <= 0:
+        return get_sq_usage(username)
+    with _lock(API_USAGE_FILE):
+        today, usage = _load_usage_file()
+        key = f'__sq__{username}'
+        usage[key] = usage.get(key, 0) + count
+        with open(API_USAGE_FILE, 'w', encoding='utf-8') as f:
+            json.dump({'date': today, 'usage': usage}, f)
+    return usage[key]
+
+
 # ── 검색 기록 ────────────────────────────────────────────────
 
 def _load_history_file():

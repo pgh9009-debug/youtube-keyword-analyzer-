@@ -10,6 +10,7 @@ from collections import Counter
 class YouTubeAnalyzer:
     def __init__(self, api_key):
         self.youtube = build('youtube', 'v3', developerKey=api_key)
+        self._sq = 0  # search.list 호출 횟수 (Search Queries 쿼터 추적용)
 
     def parse_duration(self, duration_str):
         try:
@@ -32,6 +33,7 @@ class YouTubeAnalyzer:
             params['publishedAfter'] = published_after
         if video_duration:
             params['videoDuration'] = video_duration
+        self._sq += 1
         resp = self.youtube.search().list(**params).execute()
         return [item['id']['videoId'] for item in resp.get('items', [])]
 
@@ -301,6 +303,7 @@ class YouTubeAnalyzer:
             seen_ids: set = set()
             for seed in seeds:
                 try:
+                    self._sq += 1
                     sr = self.youtube.search().list(
                         part='id', type='video',
                         q=seed,
@@ -491,6 +494,7 @@ class YouTubeAnalyzer:
         # /c/name 또는 /user/name
         m = re.search(r'/(?:c|user)/([\w.-]+)', url)
         if m:
+            self._sq += 1
             resp = self.youtube.search().list(part='snippet', q=m.group(1),
                                               type='channel', maxResults=1).execute()
             if resp.get('items'):
@@ -519,6 +523,7 @@ class YouTubeAnalyzer:
 
         # 최근 28일 쇼츠 검색 (videoDuration=short → 4분 이하)
         after = (datetime.utcnow() - timedelta(days=28)).strftime('%Y-%m-%dT%H:%M:%SZ')
+        self._sq += 1
         s_resp = self.youtube.search().list(
             part='id,snippet', channelId=channel_id,
             type='video', videoDuration='short',
@@ -638,6 +643,7 @@ class YouTubeAnalyzer:
         }
 
         # ── 세밀한 키워드 추출 (100 + 1 units) ───────────────
+        self._sq += 1
         sv_resp = self.youtube.search().list(
             part='id', channelId=channel_id,
             type='video', maxResults=30, order='viewCount'
@@ -736,6 +742,7 @@ class YouTubeAnalyzer:
             if after:
                 params['publishedAfter'] = after
             try:
+                self._sq += 1
                 sr = self.youtube.search().list(**params).execute()
                 for item in sr.get('items', []):
                     cid = item['snippet']['channelId']
