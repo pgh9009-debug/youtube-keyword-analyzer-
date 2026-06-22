@@ -545,7 +545,22 @@ def _get_transcript(video_id):
     except Exception:
         pass
 
-    api = YouTubeTranscriptApi(cookies=_cookies_file) if _cookies_file else YouTubeTranscriptApi()
+    if _cookies_file:
+        try:
+            import requests as _req
+            from http.cookiejar import MozillaCookieJar as _MCJ
+            _cj = _MCJ(_cookies_file)
+            _cj.load(ignore_discard=True, ignore_expires=True)
+            _session = _req.Session()
+            _session.cookies = _cj
+            api = YouTubeTranscriptApi(http_client=_session)
+        except TypeError:
+            try:
+                api = YouTubeTranscriptApi(cookies=_cookies_file)
+            except TypeError:
+                api = YouTubeTranscriptApi()
+    else:
+        api = YouTubeTranscriptApi()
 
     def _snippets_to_text(fetched):
         parts = []
