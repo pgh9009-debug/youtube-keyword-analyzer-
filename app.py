@@ -1766,26 +1766,24 @@ def render_full_analysis(results, channels, related_kw, angle_kw, title_patterns
                                                     use_container_width=True)
 
             if _wk_submit and _wk_url.strip():
-                st.session_state.pop('_wk_result', None)
-                st.session_state.pop('_wk_error', None)
-                with st.spinner("주간 쇼츠 분석 중..."):
+                with st.spinner("주간 쇼츠 분析 중..."):
                     try:
                         from youtube_analyzer import YouTubeAnalyzer as _WKA
                         _wk_analyzer = _WKA(_wk_api)
                         _wk_result   = _wk_analyzer.analyze_channel_shorts(_wk_url.strip())
-                        storage.add_api_usage(102, st.session_state.username)
-                        st.session_state.sq_used = storage.add_sq_usage(_wk_analyzer._sq, st.session_state.username)
                         st.session_state['_wk_result'] = _wk_result
+                        try:
+                            storage.add_api_usage(102, st.session_state.username)
+                            st.session_state.sq_used = storage.add_sq_usage(_wk_analyzer._sq, st.session_state.username)
+                        except Exception:
+                            pass
                     except Exception as _e:
-                        st.session_state['_wk_error'] = str(_e)
-                st.rerun()
-
-            if st.session_state.get('_wk_error'):
-                st.error(f"API 오류: {st.session_state['_wk_error']}")
+                        st.error(f"API 오류: {_e}")
+                        st.session_state.pop('_wk_result', None)
 
             _wk_result = st.session_state.get('_wk_result')
-            if '_wk_result' in st.session_state and _wk_result is None:
-                st.warning("채널을 찾을 수 없습니다. URL을 확인해주세요. (예: https://www.youtube.com/@채널명)")
+            if '_wk_result' in st.session_state and not _wk_result:
+                st.warning("채널을 찾을 수 없습니다. URL을 확인해주세요.")
             elif _wk_result:
                 if not _wk_result.get('weeks') or _wk_result.get('total_shorts', 0) == 0:
                     st.warning(f"**{_wk_result['channel_name']}** 채널에서 최근 28일 내 쇼츠를 찾지 못했습니다.")
