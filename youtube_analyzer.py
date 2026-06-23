@@ -481,16 +481,26 @@ class YouTubeAnalyzer:
     def _resolve_channel_id(self, url):
         """채널 URL / 핸들 / ID → channel_id 반환."""
         url = url.strip()
+        # 순수 채널 ID (UCxxxx)
+        if re.match(r'^UC[\w-]{10,}$', url):
+            return url
         # /channel/UC... 직접 ID
         m = re.search(r'/channel/(UC[\w-]+)', url)
         if m:
             return m.group(1)
-        # /@handle
-        m = re.search(r'/@([\w.-]+)', url)
+        # /@handle 또는 @handle (/ 없이)
+        m = re.search(r'/?@([\w.-]+)', url)
         if m:
-            resp = self.youtube.channels().list(part='id', forHandle=m.group(1)).execute()
+            handle = m.group(1)
+            resp = self.youtube.channels().list(part='id', forHandle=handle).execute()
             if resp.get('items'):
                 return resp['items'][0]['id']
+            # forHandle 결과 없으면 검색으로 fallback
+            self._sq += 1
+            resp = self.youtube.search().list(part='snippet', q=handle,
+                                              type='channel', maxResults=1).execute()
+            if resp.get('items'):
+                return resp['items'][0]['snippet']['channelId']
         # /c/name 또는 /user/name
         m = re.search(r'/(?:c|user)/([\w.-]+)', url)
         if m:
