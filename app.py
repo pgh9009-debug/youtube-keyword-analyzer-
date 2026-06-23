@@ -146,6 +146,10 @@ button[kind="secondary"]:hover, [data-testid="baseButton-secondary"]:hover {
 /* ── 구분선 ── */
 hr { border-color: #222 !important; }
 
+/* ── 캡션 텍스트 ── */
+[data-testid="stCaptionContainer"] p { color: #999 !important; }
+[data-testid="stCaptionContainer"] strong, [data-testid="stCaptionContainer"] b { color: #ccc !important; }
+
 /* ── 데이터프레임 ── */
 [data-testid="stDataFrame"] iframe { filter: invert(0.88) hue-rotate(180deg) !important; border-radius: 8px !important; }
 
@@ -240,7 +244,7 @@ if not st.session_state.logged_in:
                 justify-content:center;min-height:60vh;padding-top:60px">
         <div style="font-size:2.6rem;font-weight:800;letter-spacing:-1px;
                     color:#fff;margin-bottom:4px">마케팅신</div>
-        <div style="font-size:.9rem;color:#555;margin-bottom:40px">
+        <div style="font-size:.9rem;color:#888;margin-bottom:40px">
             YouTube 키워드 인텔리전스 플랫폼
         </div>
     </div>
@@ -387,11 +391,11 @@ with st.sidebar:
     st.markdown("""
     <div style="font-size:1.25rem;font-weight:800;letter-spacing:-.5px;
                 color:#fff;margin-bottom:2px">마케팅신</div>
-    <div style="font-size:.72rem;color:#444;margin-bottom:12px">
+    <div style="font-size:.72rem;color:#888;margin-bottom:12px">
         YouTube Intelligence
     </div>
     """, unsafe_allow_html=True)
-    st.markdown(f"<div style='font-size:.82rem;color:#666;margin-bottom:8px'>"
+    st.markdown(f"<div style='font-size:.82rem;color:#aaa;margin-bottom:8px'>"
                 f"👤 {auth.display_name(username)}</div>", unsafe_allow_html=True)
     if st.button("로그아웃", use_container_width=True):
         _tok = st.session_state.get('session_token', '')
@@ -845,14 +849,14 @@ def render_video_cards(data, keyword=''):
   font-weight:600;font-size:.88em;line-height:1.35em;color:#f0f0f0}
 .vc-title a{text-decoration:none;color:#f0f0f0}
 .vc-title a:hover{color:#fff;text-decoration:underline}
-.vc-tags{height:18px;font-size:.72em;color:#555;
+.vc-tags{height:18px;font-size:.72em;color:#999;
   overflow:hidden;white-space:nowrap;margin-bottom:3px}
-.vc-meta{height:17px;font-size:.72em;color:#555;
+.vc-meta{height:17px;font-size:.72em;color:#999;
   overflow:hidden;white-space:nowrap;text-overflow:ellipsis;margin-bottom:6px}
-.vc-meta a{color:#555;text-decoration:none}
+.vc-meta a{color:#999;text-decoration:none}
 .vc-meta a:hover{color:#aaa}
 .vc-stats{width:100%;border-collapse:collapse;font-size:.8em;margin-bottom:4px}
-.vc-stats th{color:#555;font-weight:500;text-align:center;
+.vc-stats th{color:#999;font-weight:500;text-align:center;
   padding:2px 0;border-bottom:1px solid #222}
 .vc-stats td{font-weight:700;text-align:center;padding:3px 0;color:#e8e8e8}
 </style>""", unsafe_allow_html=True)
@@ -1246,7 +1250,7 @@ def _render_content_sugg(suggestions, ctx_key):
                     f"border-radius:0 4px 4px 0'>"
                     f"<span style='font-size:.83em;color:#ddd'>"
                     f"<strong>{_idx + 1}.</strong> {_html.escape(_item['title'])}</span><br>"
-                    f"<span style='font-size:.71em;color:#666'>"
+                    f"<span style='font-size:.71em;color:#aaa'>"
                     f"{_html.escape(_item['reason'])}</span>"
                     f"</div>",
                     unsafe_allow_html=True
@@ -1838,7 +1842,7 @@ if page == "🔍 키워드 분석":
     st.markdown("""
     <div style="font-size:1.6rem;font-weight:800;color:#fff;
                 letter-spacing:-.5px;margin-bottom:4px">키워드 분석</div>
-    <div style="font-size:.82rem;color:#444;margin-bottom:20px">
+    <div style="font-size:.82rem;color:#888;margin-bottom:20px">
         검색어를 입력하면 YouTube 트렌드·기회·채널을 분석합니다
     </div>
     """, unsafe_allow_html=True)
@@ -1972,7 +1976,7 @@ elif page == "🔥 트렌딩":
     st.markdown("""
     <div style="font-size:1.6rem;font-weight:800;color:#fff;letter-spacing:-.5px;margin-bottom:4px">
         🔥 트렌딩 키워드</div>
-    <div style="font-size:.82rem;color:#444;margin-bottom:20px">
+    <div style="font-size:.82rem;color:#888;margin-bottom:20px">
         YouTube 인기 영상 기반 — 지금 사람들이 많이 보는 주제를 파악하세요
     </div>""", unsafe_allow_html=True)
 
@@ -2246,7 +2250,7 @@ elif page == "📺 쇼츠 분석기":
     st.markdown('''
     <div style="font-size:1.6rem;font-weight:800;color:#fff;letter-spacing:-.5px;margin-bottom:4px">
         📺 쇼츠 레퍼런스 분석기</div>
-    <div style="font-size:.82rem;color:#444;margin-bottom:20px">
+    <div style="font-size:.82rem;color:#888;margin-bottom:20px">
         분석할 쇼츠의 대본을 붙여넣으면 주제·잘된 이유·콘텐츠 방향 5가지를 추천합니다
     </div>''', unsafe_allow_html=True)
 
@@ -2396,7 +2400,7 @@ elif page == "🔭 채널 발굴":
     st.markdown('''
     <div style="font-size:1.6rem;font-weight:800;color:#fff;letter-spacing:-.5px;margin-bottom:4px">
         🔭 채널 발굴</div>
-    <div style="font-size:.82rem;color:#444;margin-bottom:20px">
+    <div style="font-size:.82rem;color:#888;margin-bottom:20px">
         레퍼런스 채널을 입력하면 키워드를 세밀하게 분석해 비슷한 결의 신규 채널을 발굴합니다
     </div>''', unsafe_allow_html=True)
 
@@ -2580,18 +2584,18 @@ elif page == "🔭 채널 발굴":
                         f'<a href="{_dch["channel_url"]}" target="_blank" '
                         f'style="color:#f0f0f0;text-decoration:none">'
                         f'{_html.escape(_dch["title"])}</a>{_grade_badge}</div>'
-                        f'<div style="font-size:.72em;color:#666;overflow:hidden;'
+                        f'<div style="font-size:.72em;color:#aaa;overflow:hidden;'
                         f'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">'
                         f'{_desc_esc if _desc_esc.strip() else "&nbsp;"}</div>'
                         f'</div></div>'
                         f'<table style="width:100%;border-collapse:collapse;font-size:.78em"><tr>'
-                        f'<th style="color:#555;font-weight:500;text-align:center;'
+                        f'<th style="color:#999;font-weight:500;text-align:center;'
                         f'padding:2px 0;border-bottom:1px solid #222">구독자</th>'
-                        f'<th style="color:#555;font-weight:500;text-align:center;'
+                        f'<th style="color:#999;font-weight:500;text-align:center;'
                         f'padding:2px 0;border-bottom:1px solid #222">평균 조회</th>'
-                        f'<th style="color:#555;font-weight:500;text-align:center;'
+                        f'<th style="color:#999;font-weight:500;text-align:center;'
                         f'padding:2px 0;border-bottom:1px solid #222">전환율</th>'
-                        f'<th style="color:#555;font-weight:500;text-align:center;'
+                        f'<th style="color:#999;font-weight:500;text-align:center;'
                         f'padding:2px 0;border-bottom:1px solid #222">등장 횟수</th>'
                         f'</tr><tr>'
                         f'<td style="font-weight:700;text-align:center;padding:3px 0;color:#e8e8e8">'
@@ -2613,7 +2617,7 @@ elif page == "📌 저장된 영상":
     st.markdown('''
     <div style="font-size:1.6rem;font-weight:800;color:#fff;letter-spacing:-.5px;margin-bottom:4px">
         📌 저장된 영상</div>
-    <div style="font-size:.82rem;color:#444;margin-bottom:20px">
+    <div style="font-size:.82rem;color:#888;margin-bottom:20px">
         직접 삭제하기 전까지 영구 보관됩니다
     </div>''', unsafe_allow_html=True)
     saved = storage.get_saved_by_user(username)
@@ -2683,7 +2687,7 @@ elif page == "⚙️ 팀 관리":
     st.markdown('''
     <div style="font-size:1.6rem;font-weight:800;color:#fff;letter-spacing:-.5px;margin-bottom:4px">
         ⚙️ 팀 관리</div>
-    <div style="font-size:.82rem;color:#444;margin-bottom:20px">
+    <div style="font-size:.82rem;color:#888;margin-bottom:20px">
         팀원 계정 관리 및 권한 설정
     </div>''', unsafe_allow_html=True)
 
