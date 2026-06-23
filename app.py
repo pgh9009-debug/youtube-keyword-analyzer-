@@ -157,7 +157,7 @@ hr { border-color: #222 !important; }
 .stSuccess { background: #0d1f12 !important; color: #6fcf97 !important; }
 .stWarning { background: #1f1a0d !important; color: #f2c94c !important; }
 .stError   { background: #1f0d0d !important; color: #eb5757 !important; }
-.stInfo    { background: #0d131f !important; color: #56b4d3 !important; }
+.stInfo    { background: #0d131f !important; color: #e0e0e0 !important; }
 
 /* ── 셀렉트박스 ── */
 [data-baseweb="select"] div {
@@ -2368,17 +2368,17 @@ elif page == "📺 쇼츠 분석기":
     _rh1.caption(_SA_SEED_ANGLES[_seed % len(_SA_SEED_ANGLES)])
     if _rc < 3:
         if _rh2.button(f"🔄 알고리즘 초기화 ({_rc + 1}/3)", key="sa_refresh_btn", use_container_width=True):
-            with st.spinner("새 콘텐츠 방향 생성 중..."):
+            with st.spinner("새 시각으로 전체 분석 중..."):
                 try:
-                    _new_recos = _claude_refresh_recos(
+                    _new_result = _claude_analyze_shorts(
                         _ant_key, _sv, st.session_state.sa_transcript, seed=_seed + 1
                     )
-                    if _new_recos:
-                        st.session_state.sa_result['recommendations'] = _new_recos
+                    if _new_result:
+                        st.session_state.sa_result        = _new_result
                         st.session_state.sa_seed          = _seed + 1
                         st.session_state.sa_refresh_count = _rc + 1
                 except Exception as _re:
-                    st.error(f"재생성 오류: {_re}")
+                    st.error(f"재분析 오류: {_re}")
             st.rerun()
     else:
         _rh2.caption("초기화 3회 완료")
