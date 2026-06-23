@@ -480,28 +480,34 @@ class YouTubeAnalyzer:
 
     def _resolve_channel_id(self, url):
         """채널 URL / 핸들 / ID → channel_id 반환."""
-        url = url.strip()
+        from urllib.parse import unquote
+        url = unquote(url.strip())
+
         # 순수 채널 ID (UCxxxx)
         if re.match(r'^UC[\w-]{10,}$', url):
             return url
+
         # /channel/UC... 직접 ID
         m = re.search(r'/channel/(UC[\w-]+)', url)
         if m:
             return m.group(1)
-        # /@handle
-        m = re.search(r'/@([\w.-]+)', url)
+
+        # /@handle 또는 @handle (/ 없이도 허용)
+        m = re.search(r'/?@([\w.-]+)', url)
         if m:
-            resp = self.youtube.channels().list(part='id', forHandle=m.group(1)).execute()
+            handle = m.group(1)
+            resp = self.youtube.channels().list(part='id', forHandle=handle).execute()
             if resp.get('items'):
                 return resp['items'][0]['id']
             # forHandle 실패 시 채널명으로 검색
             self._sq += 1
             resp = self.youtube.search().list(
-                part='snippet', q=m.group(1), type='channel', maxResults=1
+                part='snippet', q=handle, type='channel', maxResults=1
             ).execute()
             if resp.get('items'):
                 return resp['items'][0]['snippet']['channelId']
-            raise ValueError(f"채널을 찾을 수 없습니다: @{m.group(1)}")
+            raise ValueError(f"채널을 찾을 수 없습니다: @{handle}")
+
         # /c/name 또는 /user/name
         m = re.search(r'/(?:c|user)/([\w.-]+)', url)
         if m:
@@ -512,7 +518,20 @@ class YouTubeAnalyzer:
             if resp.get('items'):
                 return resp['items'][0]['snippet']['channelId']
             raise ValueError(f"채널을 찾을 수 없습니다: {m.group(1)}")
-        raise ValueError(f"URL 형식을 인식할 수 없습니다: {url}")
+
+        # youtube.com/커스텀이름 형식 (접두사 없는 커스텀 URL)
+        m = re.search(r'youtube\.com/([^/?#\s]+)', url)
+        if m:
+            name = m.group(1)
+            self._sq += 1
+            resp = self.youtube.search().list(
+                part='snippet', q=name, type='channel', maxResults=1
+            ).execute()
+            if resp.get('items'):
+                return resp['items'][0]['snippet']['channelId']
+            raise ValueError(f"채널을 찾을 수 없습니다: {name}")
+
+        raise ValueError(f"URL 형식을 인식할 수 없습니다. 채널 링크를 확인해주세요.")
 
     def analyze_channel_shorts(self, channel_url):
         """
