@@ -488,28 +488,31 @@ class YouTubeAnalyzer:
         m = re.search(r'/channel/(UC[\w-]+)', url)
         if m:
             return m.group(1)
-        # /@handle 또는 @handle (/ 없이)
-        m = re.search(r'/?@([\w.-]+)', url)
+        # /@handle
+        m = re.search(r'/@([\w.-]+)', url)
         if m:
-            handle = m.group(1)
-            resp = self.youtube.channels().list(part='id', forHandle=handle).execute()
+            resp = self.youtube.channels().list(part='id', forHandle=m.group(1)).execute()
             if resp.get('items'):
                 return resp['items'][0]['id']
-            # forHandle 결과 없으면 검색으로 fallback
+            # forHandle 실패 시 채널명으로 검색
             self._sq += 1
-            resp = self.youtube.search().list(part='snippet', q=handle,
-                                              type='channel', maxResults=1).execute()
+            resp = self.youtube.search().list(
+                part='snippet', q=m.group(1), type='channel', maxResults=1
+            ).execute()
             if resp.get('items'):
                 return resp['items'][0]['snippet']['channelId']
+            raise ValueError(f"채널을 찾을 수 없습니다: @{m.group(1)}")
         # /c/name 또는 /user/name
         m = re.search(r'/(?:c|user)/([\w.-]+)', url)
         if m:
             self._sq += 1
-            resp = self.youtube.search().list(part='snippet', q=m.group(1),
-                                              type='channel', maxResults=1).execute()
+            resp = self.youtube.search().list(
+                part='snippet', q=m.group(1), type='channel', maxResults=1
+            ).execute()
             if resp.get('items'):
                 return resp['items'][0]['snippet']['channelId']
-        return None
+            raise ValueError(f"채널을 찾을 수 없습니다: {m.group(1)}")
+        raise ValueError(f"URL 형식을 인식할 수 없습니다: {url}")
 
     def analyze_channel_shorts(self, channel_url):
         """
@@ -521,14 +524,12 @@ class YouTubeAnalyzer:
             'total_shorts': int,
         }
         """
-        channel_id = self._resolve_channel_id(channel_url)
-        if not channel_id:
-            return None
+        channel_id = self._resolve_channel_id(channel_url)  # raises ValueError if not found
 
         # 채널 이름
         ch_resp = self.youtube.channels().list(part='snippet', id=channel_id).execute()
         if not ch_resp.get('items'):
-            return None
+            raise ValueError(f'채널 정보를 가져올 수 없습니다: {channel_id}')
         channel_name = ch_resp['items'][0]['snippet']['title']
 
         # 최근 28일 쇼츠 검색 (videoDuration=short → 4분 이하)

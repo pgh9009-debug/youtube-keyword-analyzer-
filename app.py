@@ -1782,9 +1782,7 @@ def render_full_analysis(results, channels, related_kw, angle_kw, title_patterns
                         st.session_state.pop('_wk_result', None)
 
             _wk_result = st.session_state.get('_wk_result')
-            if '_wk_result' in st.session_state and not _wk_result:
-                st.warning("채널을 찾을 수 없습니다. URL을 확인해주세요.")
-            elif _wk_result:
+            if _wk_result:
                 if not _wk_result.get('weeks') or _wk_result.get('total_shorts', 0) == 0:
                     st.warning(f"**{_wk_result['channel_name']}** 채널에서 최근 28일 내 쇼츠를 찾지 못했습니다.")
                 else:
