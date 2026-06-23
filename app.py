@@ -1766,6 +1766,8 @@ def render_full_analysis(results, channels, related_kw, angle_kw, title_patterns
                                                     use_container_width=True)
 
             if _wk_submit and _wk_url.strip():
+                st.session_state.pop('_wk_result', None)
+                st.session_state.pop('_wk_error', None)
                 with st.spinner("주간 쇼츠 분석 중..."):
                     try:
                         from youtube_analyzer import YouTubeAnalyzer as _WKA
@@ -1775,8 +1777,11 @@ def render_full_analysis(results, channels, related_kw, angle_kw, title_patterns
                         st.session_state.sq_used = storage.add_sq_usage(_wk_analyzer._sq, st.session_state.username)
                         st.session_state['_wk_result'] = _wk_result
                     except Exception as _e:
-                        st.error(f"API 오류: {_e}")
-                        _wk_result = None
+                        st.session_state['_wk_error'] = str(_e)
+                st.rerun()
+
+            if st.session_state.get('_wk_error'):
+                st.error(f"API 오류: {st.session_state['_wk_error']}")
 
             _wk_result = st.session_state.get('_wk_result')
             if _wk_result:
