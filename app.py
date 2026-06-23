@@ -1323,9 +1323,21 @@ def render_full_analysis(results, channels, related_kw, angle_kw, title_patterns
         if not shorts:
             st.info("쇼츠 결과가 없습니다.")
         else:
-            render_video_cards(shorts, keyword)
+            _sort_map = {
+                "🔢 기본순 (조회수)": "view_count",
+                "💬 참여율":          "engagement_rate",
+                "👍 좋아요":          "like_count",
+                "🗨️ 댓글":            "comment_count",
+            }
+            _sk = st.radio(
+                "정렬 기준", list(_sort_map.keys()),
+                horizontal=True, label_visibility="collapsed",
+                key="shorts_sort_key"
+            )
+            _sorted_shorts = sorted(shorts, key=lambda v: v.get(_sort_map[_sk], 0), reverse=True)
+            render_video_cards(_sorted_shorts, keyword)
             with st.expander("📊 쇼츠 차트 보기"):
-                render_chart_only(shorts, "쇼츠")
+                render_chart_only(_sorted_shorts, "쇼츠")
 
     # ════ 롱폼 ════
     with tabs[1]:
