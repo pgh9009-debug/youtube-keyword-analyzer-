@@ -18,16 +18,30 @@ def _hash(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
 
+def _required_users():
+    """앱 슬립 후 users.json이 초기화되어도 항상 존재해야 하는 계정."""
+    return {
+        "sa":   {"password": _hash("sa"),   "name": "승헌"},
+        "moon": {"password": _hash("moon"), "name": "성준"},
+    }
+
+
 def _seed_from_secrets():
-    """Streamlit secrets에 INITIAL_USERS가 있으면 파싱해서 반환, 없으면 기본 admin 반환."""
+    """Streamlit secrets에 INITIAL_USERS가 있으면 파싱해서 반환, 없으면 기본 admin 반환.
+    두 경우 모두 _required_users()를 병합해 필수 계정이 항상 포함되도록 한다."""
     try:
         import streamlit as st
         raw = st.secrets.get("INITIAL_USERS")
         if raw:
-            return json.loads(raw)
+            seeded = json.loads(raw)
+            for uname, info in _required_users().items():
+                seeded.setdefault(uname, info)
+            return seeded
     except Exception:
         pass
-    return {"admin": {"password": _hash("admin123"), "name": "관리자"}}
+    default = {"admin": {"password": _hash("admin123"), "name": "관리자"}}
+    default.update(_required_users())
+    return default
 
 
 def load_users():
@@ -38,7 +52,14 @@ def load_users():
                 json.dump(default, f, ensure_ascii=False, indent=2)
             return default
         with open(USERS_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
+            users = json.load(f)
+
+    # 슬립 후 부분 리셋 등으로 필수 계정이 빠졌으면 복구
+    missing = {u: info for u, info in _required_users().items() if u not in users}
+    if missing:
+        users.update(missing)
+        _write(users)
+    return users
 
 
 def _write(users):
