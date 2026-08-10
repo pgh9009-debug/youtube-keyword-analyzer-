@@ -26,13 +26,21 @@ class YouTubeAnalyzer:
             return f"{h}:{m:02d}:{s:02d}"
         return f"{m}:{s:02d}"
 
-    def _search_video_ids(self, query, max_results, order='relevance', published_after=None, video_duration=None):
+    @staticmethod
+    def _detect_lang(text):
+        """검색어 언어 감지: 한글 포함 시 'ko', 아니면(영문 등) 'en'. relevanceLanguage에 사용."""
+        return 'ko' if re.search(r'[가-힣]', text) else 'en'
+
+    def _search_video_ids(self, query, max_results, order='relevance', published_after=None,
+                           video_duration=None, relevance_language=None):
         params = dict(q=query, part='id', type='video',
                       maxResults=max_results, order=order)
         if published_after:
             params['publishedAfter'] = published_after
         if video_duration:
             params['videoDuration'] = video_duration
+        if relevance_language:
+            params['relevanceLanguage'] = relevance_language
         self._sq += 1
         resp = self.youtube.search().list(**params).execute()
         return [item['id']['videoId'] for item in resp.get('items', [])]
@@ -59,11 +67,12 @@ class YouTubeAnalyzer:
         if cfg['days']:
             after = (datetime.utcnow() - timedelta(days=cfg['days'])).strftime('%Y-%m-%dT%H:%M:%SZ')
 
-        relevance_ids = self._search_video_ids(keyword, max_results, order=cfg['main'], published_after=after)
-        shorts_ids    = self._search_video_ids(f"{keyword} #shorts", 50, order=cfg['shorts'], published_after=after)
+        lang = self._detect_lang(keyword)
+        relevance_ids = self._search_video_ids(keyword, max_results, order=cfg['main'], published_after=after, relevance_language=lang)
+        shorts_ids    = self._search_video_ids(f"{keyword} #shorts", 50, order=cfg['shorts'], published_after=after, relevance_language=lang)
         # 롱폼 최소 20개 보장: medium(4~20분) + long(20분↑) 전용 검색
-        longform_medium_ids = self._search_video_ids(keyword, 25, order=cfg['main'], published_after=after, video_duration='medium')
-        longform_long_ids   = self._search_video_ids(keyword, 25, order=cfg['main'], published_after=after, video_duration='long')
+        longform_medium_ids = self._search_video_ids(keyword, 25, order=cfg['main'], published_after=after, video_duration='medium', relevance_language=lang)
+        longform_long_ids   = self._search_video_ids(keyword, 25, order=cfg['main'], published_after=after, video_duration='long', relevance_language=lang)
 
         # 중복 제거: 롱폼 전용 → 메인 → 쇼츠 순 우선 배치
         seen = set()
@@ -152,7 +161,7 @@ class YouTubeAnalyzer:
         try:
             resp = requests.get(
                 'https://suggestqueries.google.com/complete/search',
-                params={'client': 'firefox', 'ds': 'yt', 'q': keyword, 'hl': 'ko'},
+                params={'client': 'firefox', 'ds': 'yt', 'q': keyword, 'hl': self._detect_lang(keyword)},
                 timeout=5
             )
             data = json.loads(resp.text)
@@ -395,7 +404,8 @@ class YouTubeAnalyzer:
             after = None
             if cfg['days']:
                 after = (datetime.utcnow() - timedelta(days=cfg['days'])).strftime('%Y-%m-%dT%H:%M:%SZ')
-            video_ids = self._search_video_ids(keyword, max_results, order=cfg['main'], published_after=after)
+            video_ids = self._search_video_ids(keyword, max_results, order=cfg['main'], published_after=after,
+                                                relevance_language=self._detect_lang(keyword))
             if not video_ids:
                 return [], [], []
             resp = self.youtube.videos().list(
