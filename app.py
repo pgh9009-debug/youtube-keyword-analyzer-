@@ -842,8 +842,12 @@ def render_video_cards(data, keyword=''):
     global _CARD_CSS_INJECTED
     if not _CARD_CSS_INJECTED:
         st.markdown("""<style>
-.vc-thumb{width:100%;height:160px;object-fit:cover;border-radius:8px;display:block}
-.vc-no-thumb{width:100%;height:160px;background:#1a1a1a;border-radius:8px;border:1px solid #222}
+.vc-thumb-wrap{position:relative;width:100%}
+.vc-thumb{width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:8px;display:block;background:#111}
+.vc-no-thumb{width:100%;aspect-ratio:16/9;background:#1a1a1a;border-radius:8px;border:1px solid #222}
+.vc-badge{position:absolute;top:6px;left:6px;background:#ff4757;color:#fff;
+  font-size:.72em;font-weight:700;padding:2px 8px;border-radius:4px;
+  box-shadow:0 1px 4px rgba(0,0,0,.5)}
 .vc-title{height:44px;overflow:hidden;margin:8px 0 4px;
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
   font-weight:600;font-size:.88em;line-height:1.35em;color:#f0f0f0}
@@ -862,6 +866,14 @@ def render_video_cards(data, keyword=''):
 </style>""", unsafe_allow_html=True)
         _CARD_CSS_INJECTED = True
 
+    # 고효율(구독자 대비 조회수) 배지 기준 — 현재 목록 내 상위 25% 비율 + 구독자 10만 미만
+    _eff_ratios = [v['view_count'] / max(v.get('subscriber_count', 1), 100) for v in data]
+    if _eff_ratios:
+        _eff_sorted = sorted(_eff_ratios, reverse=True)
+        _eff_threshold = _eff_sorted[max(0, len(_eff_sorted) // 4 - 1)]
+    else:
+        _eff_threshold = 0
+
     for i in range(0, len(data), 3):
         row  = data[i:i+3]
         cols = st.columns(3)
@@ -874,8 +886,13 @@ def render_video_cards(data, keyword=''):
                 tag_html = '  '.join(tags[:5]) if tags else '&nbsp;'
                 thumb    = v.get('thumbnail', '')
                 _safe_thumb = thumb if (thumb and (thumb.startswith('https://i.ytimg.com/') or thumb.startswith('https://yt3.ggpht.com/'))) else ''
-                thumb_el = (f'<img class="vc-thumb" src="{_safe_thumb}">'
-                            if _safe_thumb else '<div class="vc-no-thumb"></div>')
+
+                _eff_ratio = v['view_count'] / max(v.get('subscriber_count', 1), 100)
+                _is_efficient = v.get('subscriber_count', 1) < 100_000 and _eff_ratio >= max(_eff_threshold, 3)
+                _badge_html = '<div class="vc-badge">🚀 고효율</div>' if _is_efficient else ''
+
+                thumb_el = (f'<div class="vc-thumb-wrap"><img class="vc-thumb" src="{_safe_thumb}">{_badge_html}</div>'
+                            if _safe_thumb else f'<div class="vc-thumb-wrap"><div class="vc-no-thumb"></div>{_badge_html}</div>')
                 ch_url   = f"https://www.youtube.com/channel/{v['channel_id']}"
 
                 st.markdown(f"""<div>
@@ -1257,6 +1274,24 @@ def _render_content_sugg(suggestions, ctx_key):
                 )
 
 
+def _sort_video_list(items, key_prefix):
+    """정렬 라디오를 렌더링하고 정렬된 리스트를 반환. 쇼츠·롱폼 탭 공용."""
+    sort_map = {
+        "🔢 기본순 (조회수)":     lambda v: v.get('view_count', 0),
+        "🕐 최신순":              lambda v: v.get('published_at', ''),
+        "🚀 고효율 (구독자 대비)": lambda v: v['view_count'] / max(v.get('subscriber_count', 1), 100),
+        "💬 참여율":              lambda v: v.get('engagement_rate', 0),
+        "👍 좋아요":              lambda v: v.get('like_count', 0),
+        "🗨️ 댓글":                lambda v: v.get('comment_count', 0),
+    }
+    sk = st.radio(
+        "정렬 기준", list(sort_map.keys()),
+        horizontal=True, label_visibility="collapsed",
+        key=f"{key_prefix}_sort_key"
+    )
+    return sorted(items, key=sort_map[sk], reverse=True)
+
+
 def render_chart_only(data, label):
     df = pd.DataFrame(data)
     fig = px.bar(df.head(10), x='view_count', y='title', orientation='h',
@@ -1323,18 +1358,7 @@ def render_full_analysis(results, channels, related_kw, angle_kw, title_patterns
         if not shorts:
             st.info("쇼츠 결과가 없습니다.")
         else:
-            _sort_map = {
-                "🔢 기본순 (조회수)": "view_count",
-                "💬 참여율":          "engagement_rate",
-                "👍 좋아요":          "like_count",
-                "🗨️ 댓글":            "comment_count",
-            }
-            _sk = st.radio(
-                "정렬 기준", list(_sort_map.keys()),
-                horizontal=True, label_visibility="collapsed",
-                key="shorts_sort_key"
-            )
-            _sorted_shorts = sorted(shorts, key=lambda v: v.get(_sort_map[_sk], 0), reverse=True)
+            _sorted_shorts = _sort_video_list(shorts, "shorts")
             render_video_cards(_sorted_shorts, keyword)
             with st.expander("📊 쇼츠 차트 보기"):
                 render_chart_only(_sorted_shorts, "쇼츠")
@@ -1357,9 +1381,10 @@ def render_full_analysis(results, channels, related_kw, angle_kw, title_patterns
         if not longform:
             st.info("롱폼 결과가 없습니다.")
         else:
-            render_video_cards(longform, keyword)
+            _sorted_longform = _sort_video_list(longform, "longform")
+            render_video_cards(_sorted_longform, keyword)
             with st.expander("📊 롱폼 차트 보기"):
-                render_chart_only(longform, "롱폼")
+                render_chart_only(_sorted_longform, "롱폼")
 
     # ════ 기회 점수 ════
     with tabs[2]:

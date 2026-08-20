@@ -111,6 +111,11 @@ class YouTubeAnalyzer:
             like_count = int(stats.get('likeCount', 0))
             comment_count = int(stats.get('commentCount', 0))
             engagement_rate = round((like_count + comment_count) / view_count * 100, 2) if view_count else 0
+            _thumbs = snippet.get('thumbnails', {})
+            best_thumbnail = (
+                _thumbs.get('maxres') or _thumbs.get('standard') or _thumbs.get('high')
+                or _thumbs.get('medium') or _thumbs.get('default') or {}
+            ).get('url', '')
             tags_text = ' '.join(snippet.get('tags', [])).lower()
             text = (snippet.get('title', '') + snippet.get('description', '') + tags_text).lower()
             # 쇼츠 판별: 60초 이하 OR #shorts 태그/제목 OR 180초 이하이면서 shorts 키워드 포함
@@ -134,7 +139,7 @@ class YouTubeAnalyzer:
                 'duration_sec': duration_sec,
                 'duration_str': self.format_duration(duration_sec),
                 'type': 'shorts' if is_shorts else 'longform',
-                'thumbnail': snippet['thumbnails'].get('medium', {}).get('url', ''),
+                'thumbnail': best_thumbnail,
                 'url': f"https://youtube.com/watch?v={item['id']}",
                 'tags': snippet.get('tags', []),
             })
