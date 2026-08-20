@@ -1,5 +1,6 @@
 from googleapiclient.discovery import build
 from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor
 import isodate
 import requests
 import json
@@ -44,6 +45,28 @@ class YouTubeAnalyzer:
         self._sq += 1
         resp = self.youtube.search().list(**params).execute()
         return [item['id']['videoId'] for item in resp.get('items', [])]
+
+    @staticmethod
+    def _verify_shorts_urls(video_ids):
+        """youtube.com/shorts/{id} 요청 후 최종 리다이렉트 URL로 실제 쇼츠 여부를 판별.
+        일반 영상이면 /watch?v=...로 리다이렉트되고, 실제 쇼츠면 /shorts/ 경로가 유지된다.
+        API 쿼터를 쓰지 않는 별도 HTTP 요청이라 60~180초 구간(태그만으론 판별 불가)에만 사용."""
+        def _check(video_id):
+            try:
+                resp = requests.head(
+                    f"https://www.youtube.com/shorts/{video_id}",
+                    allow_redirects=True, timeout=3
+                )
+                return video_id, '/shorts/' in resp.url
+            except requests.RequestException:
+                return video_id, None
+
+        verified = {}
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            for video_id, is_short in executor.map(_check, video_ids):
+                if is_short is not None:
+                    verified[video_id] = is_short
+        return verified
 
     # 새로고침 시드별 검색 설정
     # seed 0 (기본):     관련도 + 조회수순   + 쇼츠 관련도   — YouTube 기본 알고리즘
@@ -98,6 +121,7 @@ class YouTubeAnalyzer:
         videos_resp = {'items': all_items}
 
         results = []
+        borderline_ids = []
         for item in videos_resp.get('items', []):
             snippet = item.get('snippet')
             if not snippet:
@@ -118,13 +142,19 @@ class YouTubeAnalyzer:
             ).get('url', '')
             tags_text = ' '.join(snippet.get('tags', [])).lower()
             text = (snippet.get('title', '') + snippet.get('description', '') + tags_text).lower()
-            # 쇼츠 판별: 60초 이하 OR #shorts 태그/제목 OR 180초 이하이면서 shorts 키워드 포함
-            is_shorts = (
-                duration_sec <= 60
-                or '#shorts' in text
-                or 'shorts' in tags_text
-                or (duration_sec <= 180 and 'shorts' in text)
-            )
+            text_hint = '#shorts' in text or 'shorts' in tags_text
+
+            # 쇼츠 판별: 60초 이하는 확정 쇼츠.
+            # 60~180초는 2024년 쇼츠 길이 상한 확대(3분)로 태그 없이도 쇼츠일 수 있어
+            # 아래에서 실제 /shorts/ URL 리다이렉트로 검증(검증 실패 시 텍스트 힌트로 폴백).
+            # 180초 초과는 #shorts 태그/제목 언급 시에만 쇼츠로 간주.
+            if duration_sec <= 60:
+                is_shorts = True
+            elif duration_sec <= 180:
+                borderline_ids.append(item['id'])
+                is_shorts = text_hint
+            else:
+                is_shorts = text_hint
 
             results.append({
                 'video_id': item['id'],
@@ -138,11 +168,21 @@ class YouTubeAnalyzer:
                 'engagement_rate': engagement_rate,
                 'duration_sec': duration_sec,
                 'duration_str': self.format_duration(duration_sec),
-                'type': 'shorts' if is_shorts else 'longform',
+                'type': is_shorts,
                 'thumbnail': best_thumbnail,
                 'url': f"https://youtube.com/watch?v={item['id']}",
                 'tags': snippet.get('tags', []),
             })
+
+        if borderline_ids:
+            verified = self._verify_shorts_urls(borderline_ids)
+            by_id = {r['video_id']: r for r in results}
+            for vid, confirmed_short in verified.items():
+                if vid in by_id:
+                    by_id[vid]['type'] = confirmed_short
+
+        for r in results:
+            r['type'] = 'shorts' if r['type'] else 'longform'
 
         results.sort(key=lambda x: x['view_count'], reverse=True)
 
