@@ -1,5 +1,6 @@
 import json
 import os
+import hashlib
 import logging
 from datetime import datetime, timedelta
 from filelock import FileLock
@@ -14,6 +15,21 @@ TRENDING_HISTORY_FILE = os.path.join(_DATA_DIR, 'trending_history.json')
 SEARCH_CACHE_FILE   = os.path.join(_DATA_DIR, 'search_cache.json')
 TRENDING_CACHE_FILE = os.path.join(_DATA_DIR, 'trending_cache.json')
 _CACHE_MAX_ENTRIES = 80
+
+
+def _compute_analyzer_version():
+    """youtube_analyzer.py 내용의 해시값 — 검색 로직(썸네일/쇼츠 판별 등)이
+    바뀌면 자동으로 값이 달라져, 캐시 키에 섞어 넣으면 배포 시 구버전 캐시가
+    저절로 무효화된다(수동으로 버전을 올릴 필요 없음)."""
+    try:
+        path = os.path.join(os.path.dirname(__file__), 'youtube_analyzer.py')
+        with open(path, 'rb') as f:
+            return hashlib.md5(f.read()).hexdigest()[:8]
+    except Exception:
+        return 'v0'
+
+
+_ANALYZER_VERSION = _compute_analyzer_version()
 
 def _lock(path):
     return FileLock(path + '.lock', timeout=5)
@@ -240,7 +256,7 @@ def _save_cache_file(fname, cache):
 def get_search_cache(keyword: str, seed: int, ttl_hours: int = 2):
     with _lock(SEARCH_CACHE_FILE):
         cache = _load_cache_file(SEARCH_CACHE_FILE)
-    entry = cache.get(f"{keyword}::{seed}")
+    entry = cache.get(f"{keyword}::{seed}::{_ANALYZER_VERSION}")
     if not entry:
         return None
     try:
@@ -253,7 +269,7 @@ def get_search_cache(keyword: str, seed: int, ttl_hours: int = 2):
 def set_search_cache(keyword: str, seed: int, data: dict):
     with _lock(SEARCH_CACHE_FILE):
         cache = _load_cache_file(SEARCH_CACHE_FILE)
-        cache[f"{keyword}::{seed}"] = {'ts': datetime.now().isoformat(), 'data': data}
+        cache[f"{keyword}::{seed}::{_ANALYZER_VERSION}"] = {'ts': datetime.now().isoformat(), 'data': data}
         _save_cache_file(SEARCH_CACHE_FILE, cache)
 
 def get_trending_cache(keyword: str, seed: int, ttl_hours: int = 2):

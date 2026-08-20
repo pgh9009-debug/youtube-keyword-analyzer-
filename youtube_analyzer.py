@@ -51,11 +51,16 @@ class YouTubeAnalyzer:
         """youtube.com/shorts/{id} 요청 후 최종 리다이렉트 URL로 실제 쇼츠 여부를 판별.
         일반 영상이면 /watch?v=...로 리다이렉트되고, 실제 쇼츠면 /shorts/ 경로가 유지된다.
         API 쿼터를 쓰지 않는 별도 HTTP 요청이라 60~180초 구간(태그만으론 판별 불가)에만 사용."""
+        _headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+                          '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+        }
+
         def _check(video_id):
             try:
                 resp = requests.head(
                     f"https://www.youtube.com/shorts/{video_id}",
-                    allow_redirects=True, timeout=3
+                    headers=_headers, allow_redirects=True, timeout=4
                 )
                 return video_id, '/shorts/' in resp.url
             except requests.RequestException:
