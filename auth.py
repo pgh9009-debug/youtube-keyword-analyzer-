@@ -23,6 +23,7 @@ def _required_users():
     return {
         "sa":   {"password": _hash("sa"),   "name": "승헌"},
         "moon": {"password": _hash("moon"), "name": "성준"},
+        "kim":  {"password": _hash("kim"),  "name": "김"},
     }
 
 
@@ -54,10 +55,19 @@ def load_users():
         with open(USERS_FILE, 'r', encoding='utf-8') as f:
             users = json.load(f)
 
-    # 슬립 후 부분 리셋 등으로 필수 계정이 빠졌으면 복구
-    missing = {u: info for u, info in _required_users().items() if u not in users}
-    if missing:
-        users.update(missing)
+    # 슬립 후 부분 리셋 등으로 필수 계정이 빠졌거나 비밀번호가 바뀌었으면 복구.
+    # 필수 계정은 아이디·비밀번호를 항상 고정값으로 강제한다 (개인 API 키 등은 보존).
+    dirty = False
+    for uname, info in _required_users().items():
+        cur = users.get(uname)
+        if cur is None:
+            users[uname] = dict(info)
+            dirty = True
+        elif cur.get('password') != info['password'] or cur.get('name') != info['name']:
+            cur['password'] = info['password']
+            cur['name'] = info['name']
+            dirty = True
+    if dirty:
         _write(users)
     return users
 
