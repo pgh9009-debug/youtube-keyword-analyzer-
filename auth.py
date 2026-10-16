@@ -24,6 +24,10 @@ def _required_users():
         "sa":   {"password": _hash("sa"),   "name": "승헌"},
         "moon": {"password": _hash("moon"), "name": "성준"},
         "kim":  {"password": _hash("kim"),  "name": "김"},
+        "yoon": {"password": _hash("yoon"), "name": "윤"},
+        "kwon": {"password": _hash("kwon"), "name": "권"},
+        "ki":   {"password": _hash("ki"),   "name": "기"},
+        "kang": {"password": _hash("kang"), "name": "강"},
     }
 
 
